@@ -9,20 +9,30 @@
 /* Begin PBXBuildFile section */
 		03BB96A2B15336A3C50FAA8F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F6F0ED5EE6E79740E7BC22D8 /* Assets.xcassets */; };
 		0E08AB87A651C3336A57AD00 /* GeminiService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D53EC4BA4FB003211C90E6 /* GeminiService.swift */; };
+		30C48F38A08199FC70FA7066 /* YouTubeTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34E66D9E4EC602DEE4D6C936 /* YouTubeTranscriptService.swift */; };
+		55BF7311A63500BBDF1A56BB /* ProjectGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D8B39CA941AD5344D1154B6 /* ProjectGalleryView.swift */; };
 		66B95B4F093C17C88140F2F6 /* IllustratorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2853E7ABCDBA86BEA04C29EE /* IllustratorApp.swift */; };
 		6A0356506CC2FE46CE7043F8 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AE32FA9D18D70C08DF86D3 /* Models.swift */; };
 		A06D52D9539554D5ED356FB3 /* CanvasCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFB801E3E7B0CDD32BD9B9D /* CanvasCoordinator.swift */; };
 		B983C12CFE3D0010692E9115 /* CanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA52A2B9A1C158A070BC9E62 /* CanvasView.swift */; };
+		D8DDE479BA4E6EC07E0027B0 /* WhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFED7604449E7B9CB738217E /* WhisperService.swift */; };
+		EB4D91668749F218EA1695AF /* StorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65FFD7E5E6AC5060AA85D2EA /* StorageService.swift */; };
+		FE4B4791CE17AD693ECD1FE4 /* BrainDumpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA334ABA2E56200815F9DB53 /* BrainDumpView.swift */; };
 		FEBF46C954DB65844AABBB4C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1999CEEC50190A1FBE3DB7BE /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		1999CEEC50190A1FBE3DB7BE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		2853E7ABCDBA86BEA04C29EE /* IllustratorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IllustratorApp.swift; sourceTree = "<group>"; };
+		2D8B39CA941AD5344D1154B6 /* ProjectGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectGalleryView.swift; sourceTree = "<group>"; };
+		34E66D9E4EC602DEE4D6C936 /* YouTubeTranscriptService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeTranscriptService.swift; sourceTree = "<group>"; };
 		51A31EBF9A7F153A275F4B2D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		65FFD7E5E6AC5060AA85D2EA /* StorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageService.swift; sourceTree = "<group>"; };
 		75AE32FA9D18D70C08DF86D3 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		C9D53EC4BA4FB003211C90E6 /* GeminiService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiService.swift; sourceTree = "<group>"; };
+		CFED7604449E7B9CB738217E /* WhisperService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperService.swift; sourceTree = "<group>"; };
 		D1CD5313CFB973F9C8B356AF /* IllustratorApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = IllustratorApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DA334ABA2E56200815F9DB53 /* BrainDumpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainDumpView.swift; sourceTree = "<group>"; };
 		EA52A2B9A1C158A070BC9E62 /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		EBFB801E3E7B0CDD32BD9B9D /* CanvasCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasCoordinator.swift; sourceTree = "<group>"; };
 		F6F0ED5EE6E79740E7BC22D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -33,6 +43,7 @@
 			isa = PBXGroup;
 			children = (
 				F6F0ED5EE6E79740E7BC22D8 /* Assets.xcassets */,
+				DA334ABA2E56200815F9DB53 /* BrainDumpView.swift */,
 				EBFB801E3E7B0CDD32BD9B9D /* CanvasCoordinator.swift */,
 				EA52A2B9A1C158A070BC9E62 /* CanvasView.swift */,
 				1999CEEC50190A1FBE3DB7BE /* ContentView.swift */,
@@ -40,6 +51,10 @@
 				2853E7ABCDBA86BEA04C29EE /* IllustratorApp.swift */,
 				51A31EBF9A7F153A275F4B2D /* Info.plist */,
 				75AE32FA9D18D70C08DF86D3 /* Models.swift */,
+				2D8B39CA941AD5344D1154B6 /* ProjectGalleryView.swift */,
+				65FFD7E5E6AC5060AA85D2EA /* StorageService.swift */,
+				CFED7604449E7B9CB738217E /* WhisperService.swift */,
+				34E66D9E4EC602DEE4D6C936 /* YouTubeTranscriptService.swift */,
 			);
 			path = IllustratorApp;
 			sourceTree = "<group>";
@@ -131,12 +146,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE4B4791CE17AD693ECD1FE4 /* BrainDumpView.swift in Sources */,
 				A06D52D9539554D5ED356FB3 /* CanvasCoordinator.swift in Sources */,
 				B983C12CFE3D0010692E9115 /* CanvasView.swift in Sources */,
 				FEBF46C954DB65844AABBB4C /* ContentView.swift in Sources */,
 				0E08AB87A651C3336A57AD00 /* GeminiService.swift in Sources */,
 				66B95B4F093C17C88140F2F6 /* IllustratorApp.swift in Sources */,
 				6A0356506CC2FE46CE7043F8 /* Models.swift in Sources */,
+				55BF7311A63500BBDF1A56BB /* ProjectGalleryView.swift in Sources */,
+				EB4D91668749F218EA1695AF /* StorageService.swift in Sources */,
+				D8DDE479BA4E6EC07E0027B0 /* WhisperService.swift in Sources */,
+				30C48F38A08199FC70FA7066 /* YouTubeTranscriptService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

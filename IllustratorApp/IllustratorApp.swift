@@ -4,7 +4,7 @@ import SwiftUI
 struct IllustratorApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ProjectGalleryView()
         }
     }
 }

@@ -2,6 +2,9 @@ import SwiftUI
 import PhotosUI
 
 struct ContentView: View {
+    let projectId: String
+    var onClose: () -> Void
+
     @StateObject private var state = CanvasState()
     @State private var coordinator: CanvasCoordinator?
     @State private var selectedPhoto: PhotosPickerItem?
@@ -11,6 +14,7 @@ struct ContentView: View {
     @State private var showPostItColors = false
     @State private var isDrawingMode = true
     @State private var showPhotoPicker = false
+    @State private var showBrainDump = false
 
     var body: some View {
         ZStack {
@@ -23,6 +27,21 @@ struct ContentView: View {
             // Toolbar superior — estilo Freeform
             VStack {
                 HStack(spacing: 12) {
+                    // Botão voltar
+                    Button {
+                        coordinator?.saveProject()
+                        coordinator?.stopAutoSave()
+                        onClose()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .frame(width: 36, height: 36)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
                     // Grupo esquerdo — ferramentas de conteúdo
                     HStack(spacing: 8) {
                         // Pencil (desenho)
@@ -32,7 +51,7 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: isDrawingMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(isDrawingMode ? .blue : .primary)
+                                .foregroundColor(isDrawingMode ? .blue : Color(UIColor.systemGray3))
                                 .frame(width: 36, height: 36)
                         }
 
@@ -42,7 +61,7 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: state.isLassoMode ? "lasso.badge.sparkles" : "lasso")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(state.isLassoMode ? .blue : .primary)
+                                .foregroundColor(state.isLassoMode ? .primary : Color(UIColor.systemGray3))
                                 .frame(width: 36, height: 36)
                         }
 
@@ -77,6 +96,11 @@ struct ContentView: View {
                                 coordinator?.startRecording()
                             }
                         }
+
+                        // Brain Dump
+                        toolButton(icon: "brain.head.profile", tip: "Brain Dump") {
+                            showBrainDump = true
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -86,6 +110,26 @@ struct ContentView: View {
 
                     // Grupo direito — IA
                     HStack(spacing: 8) {
+                        // Revisar Textos
+                        Button {
+                            reviewTexts()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if state.isReviewing {
+                                    ProgressView()
+                                        .tint(.primary)
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "sparkle.magnifyingglass")
+                                }
+                                Text("Revisar")
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(.primary)
+                            .frame(height: 36)
+                        }
+                        .disabled(state.isReviewing || state.isProcessing)
+
                         // Prompt
                         toolButton(icon: "text.bubble", tip: "Prompt") {
                             showPromptEditor.toggle()
@@ -98,7 +142,7 @@ struct ContentView: View {
                             HStack(spacing: 6) {
                                 if state.isProcessing {
                                     ProgressView()
-                                        .tint(.white)
+                                        .tint(.primary)
                                         .scaleEffect(0.8)
                                     Text("Ilustrando...")
                                 } else {
@@ -107,10 +151,7 @@ struct ContentView: View {
                                 }
                             }
                             .font(.subheadline.bold())
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(state.isProcessing ? Color.gray : Color.black, in: Capsule())
+                            .foregroundColor(state.isProcessing ? .secondary : .primary)
                         }
                         .disabled(state.isProcessing)
                     }
@@ -124,14 +165,29 @@ struct ContentView: View {
                 Spacer()
             }
         }
+        .preferredColorScheme(state.isDarkMode ? .dark : .light)
         .onAppear {
-            coordinator = CanvasCoordinator(state: state)
+            let coord = CanvasCoordinator(state: state, projectId: projectId)
+            coordinator = coord
+            // Carregar projeto salvo após o canvas ser montado
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                coord.loadProject()
+                coord.startAutoSave()
+                coord.applyColorScheme(dark: state.isDarkMode)
+            }
         }
         .onChange(of: selectedPhoto) { _, newValue in
             loadPhoto(newValue)
         }
         .sheet(isPresented: $showPromptEditor) {
             PromptEditorView(prompt: $state.prompt)
+        }
+        .sheet(isPresented: $showBrainDump) {
+            BrainDumpView(isPresented: $showBrainDump) { text, layout, customPrompt in
+                generateMindMap(from: text, layout: layout, customPrompt: customPrompt)
+            } onYouTubeSummary: { text, layout, customPrompt in
+                generateYouTubeSummary(from: text, layout: layout, customPrompt: customPrompt)
+            }
         }
         .alert("Erro", isPresented: $showError) {
             Button("OK") {}
@@ -162,6 +218,10 @@ struct ContentView: View {
             // Cmd+I → Importar imagem
             Button("") { showPhotoPicker = true }
                 .keyboardShortcut("i", modifiers: .command)
+                .hidden()
+            // Cmd+S → Salvar
+            Button("") { coordinator?.saveProject() }
+                .keyboardShortcut("s", modifiers: .command)
                 .hidden()
         }
     }
@@ -224,6 +284,62 @@ struct ContentView: View {
         }
     }
 
+    private func reviewTexts() {
+        guard let coord = coordinator else { return }
+        let elements = coord.collectAllTexts()
+        guard !elements.isEmpty else {
+            errorMessage = "Nenhum texto para revisar — escreva algo primeiro!"
+            showError = true
+            return
+        }
+
+        state.isReviewing = true
+
+        Task {
+            do {
+                let reviewed = try await GeminiService.reviewTexts(elements)
+                coord.applyReviewedTexts(reviewed)
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+            state.isReviewing = false
+        }
+    }
+
+    private func generateMindMap(from text: String, layout: MindMapLayout, customPrompt: String) {
+        guard let coord = coordinator else { return }
+        state.isProcessing = true
+
+        Task {
+            do {
+                let result = try await GeminiService.generateMindMap(from: text, customPrompt: customPrompt)
+                coord.createMindMap(from: result, layout: layout)
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+            state.isProcessing = false
+        }
+    }
+
+    private func generateYouTubeSummary(from text: String, layout: MindMapLayout, customPrompt: String) {
+        guard let coord = coordinator else { return }
+        state.isProcessing = true
+
+        Task {
+            do {
+                let result = try await GeminiService.summarizeTranscript(text, customPrompt: customPrompt)
+                coord.addSummaryBlock(text: result.summary)
+                coord.createMindMap(from: result.mindMap, layout: layout)
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+            state.isProcessing = false
+        }
+    }
+
     private func loadPhoto(_ item: PhotosPickerItem?) {
         guard let item = item else { return }
         Task {
@@ -243,13 +359,14 @@ struct ContentView: View {
 
 struct AudioWaveView: View {
     var level: CGFloat // 0...1
+    var color: Color = .white
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(0..<5, id: \.self) { i in
                 let barLevel = barHeight(index: i, level: level)
                 RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.white)
+                    .fill(color)
                     .frame(width: 3)
                     .frame(height: max(4, barLevel * 24))
                     .animation(.easeOut(duration: 0.08), value: level)
@@ -258,7 +375,6 @@ struct AudioWaveView: View {
     }
 
     private func barHeight(index: Int, level: CGFloat) -> CGFloat {
-        // Variar levemente cada barra pra parecer waveform natural
         let offsets: [CGFloat] = [0.7, 0.9, 1.0, 0.85, 0.75]
         return level * offsets[index]
     }
@@ -292,7 +408,10 @@ struct PromptEditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("OK") { dismiss() }
+                    Button("OK") {
+                        UserDefaults.standard.set(prompt, forKey: "illustrationPrompt")
+                        dismiss()
+                    }
                 }
             }
         }

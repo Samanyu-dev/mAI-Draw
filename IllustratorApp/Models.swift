@@ -1,6 +1,6 @@
 import UIKit
 
-// MARK: - Canvas Items
+// MARK: - Canvas Items (runtime)
 
 struct CanvasImageItem: Identifiable {
     let id = UUID()
@@ -15,7 +15,7 @@ struct CanvasTextItem: Identifiable {
     var position: CGPoint
 }
 
-enum PostItColor: CaseIterable {
+enum PostItColor: String, CaseIterable, Codable {
     case yellow, pink, green, blue, purple
 
     var uiColor: UIColor {
@@ -43,6 +43,43 @@ struct CanvasAudioItem: Identifiable {
     var duration: TimeInterval
 }
 
+// MARK: - Canvas Document (persistência)
+
+struct CanvasDocument: Codable, Identifiable {
+    var id: String
+    var title: String
+    var createdAt: Date
+    var updatedAt: Date
+    var prompt: String
+    var elements: [CanvasElement]
+    var connections: [CanvasConnectionData]?
+}
+
+enum CanvasElementType: String, Codable {
+    case text, postit, image, audio, strokeGroup
+}
+
+struct CanvasElement: Codable {
+    var type: CanvasElementType
+    var text: String?
+    var x: CGFloat
+    var y: CGFloat
+    var width: CGFloat
+    var height: CGFloat
+    var color: PostItColor?
+    var rotation: CGFloat?
+    var file: String? // nome do arquivo (imagem/áudio)
+    var duration: TimeInterval?
+    var scale: CGFloat?
+}
+
+// MARK: - Connection (setas entre elementos)
+
+struct CanvasConnectionData: Codable {
+    var fromIndex: Int
+    var toIndex: Int
+}
+
 // MARK: - Canvas State
 
 @MainActor
@@ -50,8 +87,41 @@ class CanvasState: ObservableObject {
     @Published var images: [CanvasImageItem] = []
     @Published var isProcessing = false
     @Published var resultImage: UIImage? = nil
-    @Published var prompt: String = "Transform this sketch into a colorful children's book illustration with vibrant colors, hand-drawn whimsical style"
+    @Published var prompt: String = UserDefaults.standard.string(forKey: "illustrationPrompt") ?? "Transform this sketch into a colorful children's book illustration with vibrant colors, hand-drawn whimsical style"
     @Published var isRecording = false
     @Published var isLassoMode = false
     @Published var audioLevel: CGFloat = 0.0
+    @Published var isReviewing = false
+    @Published var isDarkMode: Bool = UserDefaults.standard.bool(forKey: "isDarkMode")
+}
+
+// MARK: - Mind Map Layout
+
+enum MindMapLayout: String, CaseIterable {
+    case radial, tree, flow
+
+    var label: String {
+        switch self {
+        case .radial: return "Radial"
+        case .tree: return "Árvore"
+        case .flow: return "Fluxo"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .radial: return "circle.grid.cross"
+        case .tree: return "list.bullet.indent"
+        case .flow: return "arrow.right.arrow.left"
+        }
+    }
+}
+
+// MARK: - Project Item (para galeria)
+
+struct ProjectItem: Identifiable, Codable {
+    var id: String
+    var title: String
+    var createdAt: Date
+    var updatedAt: Date
 }
