@@ -1273,12 +1273,13 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // MARK: - Capture Canvas
 
     func captureCanvas() -> UIImage? {
-        guard let canvasView = canvasView else { return nil }
+        guard let canvasView = canvasView, let container = containerView else { return nil }
 
         let drawing = canvasView.drawing
         var bounds = drawing.bounds
 
-        for (_, view) in imageViews {
+        // Incluir TODOS os elementos (imagens, post-its, textos, áudio, stroke groups)
+        for (_, view) in allElementViews {
             bounds = bounds.union(view.frame)
         }
 
@@ -1288,17 +1289,32 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         let renderer = UIGraphicsImageRenderer(size: paddedBounds.size)
         return renderer.image { ctx in
-            ctx.cgContext.translateBy(x: -paddedBounds.origin.x, y: -paddedBounds.origin.y)
+            let context = ctx.cgContext
 
+            // Transladar pra que paddedBounds.origin vire (0,0)
+            context.translateBy(x: -paddedBounds.origin.x, y: -paddedBounds.origin.y)
+
+            // Fundo branco
             UIColor.white.setFill()
-            ctx.fill(CGRect(origin: paddedBounds.origin, size: paddedBounds.size))
+            context.fill(CGRect(origin: paddedBounds.origin, size: paddedBounds.size))
 
-            for (_, view) in imageViews {
-                view.image?.draw(in: view.frame)
+            // Renderizar todos os elementos na ordem da z-order (de trás pra frente)
+            for sibling in container.subviews {
+                if sibling === canvasView || sibling === lassoOverlay || sibling === selectionBox { continue }
+                if !sibling.isHidden && sibling.alpha > 0 {
+                    context.saveGState()
+                    context.translateBy(x: sibling.frame.origin.x, y: sibling.frame.origin.y)
+                    // Aplicar transform (rotação de post-its)
+                    context.concatenate(sibling.transform)
+                    // Renderizar a view e todas as subviews
+                    sibling.drawHierarchy(in: CGRect(origin: .zero, size: sibling.bounds.size), afterScreenUpdates: false)
+                    context.restoreGState()
+                }
             }
 
+            // Renderizar rabiscos do PencilKit por cima de tudo
             let drawingImage = drawing.image(from: paddedBounds, scale: 2.0)
-            drawingImage.draw(in: CGRect(origin: .zero, size: paddedBounds.size))
+            drawingImage.draw(in: paddedBounds)
         }
     }
 }

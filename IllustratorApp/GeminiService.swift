@@ -19,14 +19,28 @@ struct GeminiService {
     static let model = "gemini-3-pro-image-preview"
 
     static func illustrate(image: UIImage, prompt: String) async throws -> UIImage {
-        guard let pngData = image.pngData() else { throw GeminiError.encodingFailed }
-        let base64 = pngData.base64EncodedString()
+        // Comprimir como JPEG pra reduzir tamanho do payload (mesmo approach do SDK)
+        guard let jpegData = image.jpegData(compressionQuality: 0.85) else {
+            throw GeminiError.encodingFailed
+        }
+        let base64 = jpegData.base64EncodedString()
 
+        // Formato validado — mesmo que o SDK google-genai usa internamente
+        // contents: [image, prompt] → responseModalities: ["TEXT", "IMAGE"]
         let body: [String: Any] = [
-            "contents": [["parts": [
-                ["inline_data": ["mime_type": "image/png", "data": base64]],
-                ["text": prompt]
-            ]]],
+            "contents": [[
+                "parts": [
+                    [
+                        "inline_data": [
+                            "mime_type": "image/jpeg",
+                            "data": base64
+                        ]
+                    ],
+                    [
+                        "text": prompt
+                    ]
+                ]
+            ]],
             "generationConfig": [
                 "responseModalities": ["TEXT", "IMAGE"]
             ]
@@ -57,15 +71,32 @@ struct GeminiService {
               let firstCandidate = candidates.first,
               let content = firstCandidate["content"] as? [String: Any],
               let parts = content["parts"] as? [[String: Any]] else {
+            // Tentar extrair mensagem de erro
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw GeminiError.apiError(message)
+            }
             throw GeminiError.noImageInResponse
         }
 
         for part in parts {
-            if let inlineData = part["inlineData"] as? [String: Any],
+            // Resposta pode vir como "inlineData" ou "inline_data"
+            let inlineData = (part["inlineData"] as? [String: Any])
+                          ?? (part["inline_data"] as? [String: Any])
+
+            if let inlineData = inlineData,
                let b64 = inlineData["data"] as? String,
                let imageData = Data(base64Encoded: b64),
                let image = UIImage(data: imageData) {
                 return image
+            }
+        }
+
+        // Se não encontrou imagem, mostrar texto da resposta se houver
+        for part in parts {
+            if let text = part["text"] as? String, !text.isEmpty {
+                throw GeminiError.apiError("IA respondeu texto, sem imagem: \(text.prefix(200))")
             }
         }
 
