@@ -75,7 +75,7 @@ struct ProjectGalleryView: View {
                 }
                 .padding(20)
             }
-            .navigationTitle("mAI Draw")
+            .navigationTitle("mAIDraw")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
