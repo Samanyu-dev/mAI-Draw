@@ -82,6 +82,16 @@ struct BrainDumpView: View {
                     if isFetchingTranscript {
                         ProgressView()
                             .scaleEffect(0.7)
+                    } else {
+                        Button {
+                            if let clipboard = UIPasteboard.general.string {
+                                youtubeURL = clipboard
+                            }
+                        } label: {
+                            Image(systemName: "doc.on.clipboard")
+                                .font(.system(size: 16))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
