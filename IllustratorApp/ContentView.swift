@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var isDrawingMode = true
     @State private var showPhotoPicker = false
     @State private var showBrainDump = false
+    @State private var isSaving = false
 
     var body: some View {
         ZStack {
@@ -24,146 +25,21 @@ struct ContentView: View {
                     .ignoresSafeArea()
             }
 
-            // Toolbar superior — estilo Freeform
+            // Toolbar superior
             VStack {
-                HStack(spacing: 12) {
-                    // Botão voltar
-                    Button {
-                        coordinator?.saveProject()
-                        coordinator?.stopAutoSave()
-                        onClose()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .frame(width: 36, height: 36)
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-
-                    // Grupo esquerdo — ferramentas de conteúdo
-                    HStack(spacing: 8) {
-                        // Pencil (desenho)
-                        Button {
-                            coordinator?.toggleDrawing()
-                            isDrawingMode.toggle()
-                        } label: {
-                            Image(systemName: isDrawingMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(isDrawingMode ? .blue : Color(UIColor.systemGray3))
-                                .frame(width: 36, height: 36)
-                        }
-
-                        // Laço (seleção)
-                        Button {
-                            coordinator?.toggleLasso()
-                        } label: {
-                            Image(systemName: state.isLassoMode ? "lasso.badge.sparkles" : "lasso")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(state.isLassoMode ? .primary : Color(UIColor.systemGray3))
-                                .frame(width: 36, height: 36)
-                        }
-
-                        // Texto
-                        toolButton(icon: "textformat.abc", tip: "Texto") {
-                            coordinator?.addText()
-                        }
-
-                        // Post-it
-                        toolButton(icon: "note.text", tip: "Post-it") {
-                            showPostItColors.toggle()
-                        }
-                        .popover(isPresented: $showPostItColors) {
-                            postItColorPicker
-                        }
-
-                        // Foto
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            toolIcon(icon: "photo.badge.plus")
-                        }
-
-                        // Áudio
-                        if state.isRecording {
-                            Button {
-                                coordinator?.stopRecording()
-                            } label: {
-                                AudioWaveView(level: state.audioLevel)
-                                    .frame(width: 36, height: 36)
-                            }
-                        } else {
-                            toolButton(icon: "mic.fill", tip: "Gravar") {
-                                coordinator?.startRecording()
-                            }
-                        }
-
-                        // Brain Dump
-                        toolButton(icon: "brain.head.profile", tip: "Brain Dump") {
-                            showBrainDump = true
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-
-                    Spacer()
-
-                    // Grupo direito — IA
-                    HStack(spacing: 8) {
-                        // Revisar Textos
-                        Button {
-                            reviewTexts()
-                        } label: {
-                            HStack(spacing: 4) {
-                                if state.isReviewing {
-                                    ProgressView()
-                                        .tint(.primary)
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "sparkle.magnifyingglass")
-                                }
-                                Text("Revisar")
-                            }
-                            .font(.subheadline.weight(.medium))
-                            .foregroundColor(.primary)
-                            .frame(height: 36)
-                        }
-                        .disabled(state.isReviewing || state.isProcessing)
-
-                        // Prompt
-                        toolButton(icon: "text.bubble", tip: "Prompt") {
-                            showPromptEditor.toggle()
-                        }
-
-                        // Ilustrar
-                        Button {
-                            illustrate()
-                        } label: {
-                            HStack(spacing: 6) {
-                                if state.isProcessing {
-                                    ProgressView()
-                                        .tint(.primary)
-                                        .scaleEffect(0.8)
-                                    Text("Ilustrando...")
-                                } else {
-                                    Image(systemName: "wand.and.stars")
-                                    Text("Ilustrar")
-                                }
-                            }
-                            .font(.subheadline.bold())
-                            .foregroundColor(state.isProcessing ? .secondary : .primary)
-                        }
-                        .disabled(state.isProcessing)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                #if MAIDRAW_PHONE
+                phoneToolbar
+                #else
+                iPadToolbar
+                #endif
 
                 Spacer()
             }
+        }
+        .background {
+            Button("") { coordinator?.toggleHighlightOnSelected() }
+                .keyboardShortcut("l", modifiers: .command)
+                .hidden()
         }
         .preferredColorScheme(state.isDarkMode ? .dark : .light)
         .onAppear {
@@ -225,6 +101,306 @@ struct ContentView: View {
                 .hidden()
         }
     }
+
+    // MARK: - Phone Toolbar
+
+    #if MAIDRAW_PHONE
+    private var phoneToolbar: some View {
+        HStack(spacing: 8) {
+            // Botão voltar
+            Button {
+                guard !isSaving else { return }
+                isSaving = true
+                coordinator?.stopAutoSave()
+                Task {
+                    await coordinator?.saveAndSync()
+                    await MainActor.run {
+                        isSaving = false
+                        onClose()
+                    }
+                }
+            } label: {
+                if isSaving {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 32, height: 32)
+                } else {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(width: 32, height: 32)
+                }
+            }
+
+            Divider().frame(height: 20)
+
+            // Ferramentas
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    // Laço
+                    Button {
+                        coordinator?.toggleLasso()
+                    } label: {
+                        Image(systemName: state.isLassoMode ? "lasso.badge.sparkles" : "lasso")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(state.isLassoMode ? .primary : Color(UIColor.systemGray3))
+                            .frame(width: 32, height: 32)
+                    }
+
+                    // Texto
+                    phoneToolButton(icon: "textformat.abc") {
+                        coordinator?.addText()
+                    }
+
+                    // Post-it
+                    phoneToolButton(icon: "note.text") {
+                        showPostItColors.toggle()
+                    }
+                    .popover(isPresented: $showPostItColors) {
+                        postItColorPicker
+                    }
+
+                    // Foto
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.primary)
+                            .frame(width: 32, height: 32)
+                    }
+
+                    // Áudio
+                    if state.isRecording {
+                        Button {
+                            coordinator?.stopRecording()
+                        } label: {
+                            AudioWaveView(level: state.audioLevel)
+                                .frame(width: 32, height: 32)
+                        }
+                    } else {
+                        phoneToolButton(icon: "mic.fill") {
+                            coordinator?.startRecording()
+                        }
+                    }
+
+                    // Brain Dump
+                    phoneToolButton(icon: "brain.head.profile") {
+                        showBrainDump = true
+                    }
+
+                    Divider().frame(height: 20)
+
+                    // Revisar
+                    Button {
+                        reviewTexts()
+                    } label: {
+                        Group {
+                            if state.isReviewing {
+                                ProgressView().tint(.primary).scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "sparkle.magnifyingglass")
+                                    .font(.system(size: 16, weight: .medium))
+                            }
+                        }
+                        .foregroundColor(.primary)
+                        .frame(width: 32, height: 32)
+                    }
+                    .disabled(state.isReviewing || state.isProcessing)
+
+                    // Prompt
+                    phoneToolButton(icon: "text.bubble") {
+                        showPromptEditor.toggle()
+                    }
+
+                    // Ilustrar
+                    Button {
+                        illustrate()
+                    } label: {
+                        Group {
+                            if state.isProcessing {
+                                ProgressView().tint(.primary).scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "wand.and.stars")
+                                    .font(.system(size: 16, weight: .medium))
+                            }
+                        }
+                        .foregroundColor(state.isProcessing ? .secondary : .primary)
+                        .frame(width: 32, height: 32)
+                    }
+                    .disabled(state.isProcessing)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+    }
+
+    private func phoneToolButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.primary)
+                .frame(width: 32, height: 32)
+        }
+    }
+    #endif
+
+    // MARK: - iPad Toolbar
+
+    #if !MAIDRAW_PHONE
+    private var iPadToolbar: some View {
+        HStack(spacing: 12) {
+            // Botão voltar
+            Button {
+                guard !isSaving else { return }
+                isSaving = true
+                coordinator?.stopAutoSave()
+                Task {
+                    await coordinator?.saveAndSync()
+                    await MainActor.run {
+                        isSaving = false
+                        onClose()
+                    }
+                }
+            } label: {
+                if isSaving {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .frame(width: 36, height: 36)
+                } else {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(width: 36, height: 36)
+                }
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+            // Grupo esquerdo — ferramentas de conteúdo
+            HStack(spacing: 8) {
+                // Pencil (desenho)
+                Button {
+                    coordinator?.toggleDrawing()
+                    isDrawingMode.toggle()
+                } label: {
+                    Image(systemName: isDrawingMode ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(isDrawingMode ? .blue : Color(UIColor.systemGray3))
+                        .frame(width: 36, height: 36)
+                }
+
+                // Laço (seleção)
+                Button {
+                    coordinator?.toggleLasso()
+                } label: {
+                    Image(systemName: state.isLassoMode ? "lasso.badge.sparkles" : "lasso")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(state.isLassoMode ? .primary : Color(UIColor.systemGray3))
+                        .frame(width: 36, height: 36)
+                }
+
+                // Texto
+                toolButton(icon: "textformat.abc", tip: "Texto") {
+                    coordinator?.addText()
+                }
+
+                // Post-it
+                toolButton(icon: "note.text", tip: "Post-it") {
+                    showPostItColors.toggle()
+                }
+                .popover(isPresented: $showPostItColors) {
+                    postItColorPicker
+                }
+
+                // Foto
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    toolIcon(icon: "photo.badge.plus")
+                }
+
+                // Áudio
+                if state.isRecording {
+                    Button {
+                        coordinator?.stopRecording()
+                    } label: {
+                        AudioWaveView(level: state.audioLevel)
+                            .frame(width: 36, height: 36)
+                    }
+                } else {
+                    toolButton(icon: "mic.fill", tip: "Gravar") {
+                        coordinator?.startRecording()
+                    }
+                }
+
+                // Brain Dump
+                toolButton(icon: "brain.head.profile", tip: "Brain Dump") {
+                    showBrainDump = true
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+
+            Spacer()
+
+            // Grupo direito — IA
+            HStack(spacing: 8) {
+                // Revisar Textos
+                Button {
+                    reviewTexts()
+                } label: {
+                    HStack(spacing: 4) {
+                        if state.isReviewing {
+                            ProgressView()
+                                .tint(.primary)
+                                .scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "sparkle.magnifyingglass")
+                        }
+                        Text("Revisar")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.primary)
+                    .frame(height: 36)
+                }
+                .disabled(state.isReviewing || state.isProcessing)
+
+                // Prompt
+                toolButton(icon: "text.bubble", tip: "Prompt") {
+                    showPromptEditor.toggle()
+                }
+
+                // Ilustrar
+                Button {
+                    illustrate()
+                } label: {
+                    HStack(spacing: 6) {
+                        if state.isProcessing {
+                            ProgressView()
+                                .tint(.primary)
+                                .scaleEffect(0.8)
+                            Text("Ilustrando...")
+                        } else {
+                            Image(systemName: "wand.and.stars")
+                            Text("Ilustrar")
+                        }
+                    }
+                    .font(.subheadline.bold())
+                    .foregroundColor(state.isProcessing ? .secondary : .primary)
+                }
+                .disabled(state.isProcessing)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+    #endif
 
     // MARK: - Tool Button Helpers
 
@@ -352,31 +528,6 @@ struct ContentView: View {
                 coord.addImage(canvasItem)
             }
         }
-    }
-}
-
-// MARK: - Audio Wave Animation (real mic input)
-
-struct AudioWaveView: View {
-    var level: CGFloat // 0...1
-    var color: Color = .white
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<5, id: \.self) { i in
-                let barLevel = barHeight(index: i, level: level)
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(color)
-                    .frame(width: 3)
-                    .frame(height: max(4, barLevel * 24))
-                    .animation(.easeOut(duration: 0.08), value: level)
-            }
-        }
-    }
-
-    private func barHeight(index: Int, level: CGFloat) -> CGFloat {
-        let offsets: [CGFloat] = [0.7, 0.9, 1.0, 0.85, 0.75]
-        return level * offsets[index]
     }
 }
 

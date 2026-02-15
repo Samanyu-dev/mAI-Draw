@@ -6,9 +6,18 @@ struct StorageService {
 
     // MARK: - Paths
 
-    private static var rootURL: URL {
+    private static var baseURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let url = docs.appendingPathComponent(rootFolder)
+        return docs.appendingPathComponent(rootFolder)
+    }
+
+    private static var rootURL: URL {
+        let url: URL
+        if let userId = SupabaseManager.shared.currentUserId {
+            url = baseURL.appendingPathComponent(userId)
+        } else {
+            url = baseURL
+        }
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -19,28 +28,13 @@ struct StorageService {
         return url
     }
 
-    // MARK: - List Projects
+    // MARK: - Save Document JSON (cache only)
 
-    static func listProjects() -> [ProjectItem] {
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: [.contentModificationDateKey]) else {
-            return []
+    static func saveDocumentJSON(_ document: CanvasDocument) {
+        let folder = canvasURL(for: document.id)
+        if let data = try? JSONEncoder.withDates.encode(document) {
+            try? data.write(to: folder.appendingPathComponent("canvas.json"))
         }
-
-        var projects: [ProjectItem] = []
-        for folder in contents {
-            let jsonURL = folder.appendingPathComponent("canvas.json")
-            guard let data = try? Data(contentsOf: jsonURL),
-                  let doc = try? JSONDecoder.withDates.decode(CanvasDocument.self, from: data) else { continue }
-            projects.append(ProjectItem(
-                id: doc.id,
-                title: doc.title,
-                createdAt: doc.createdAt,
-                updatedAt: doc.updatedAt
-            ))
-        }
-
-        return projects.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     // MARK: - Save

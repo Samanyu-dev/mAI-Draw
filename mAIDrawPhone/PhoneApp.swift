@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct IllustratorApp: App {
+struct PhoneApp: App {
     @StateObject private var authState = AuthState()
 
     var body: some Scene {

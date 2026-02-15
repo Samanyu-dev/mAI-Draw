@@ -68,9 +68,10 @@ struct CanvasElement: Codable {
     var height: CGFloat
     var color: PostItColor?
     var rotation: CGFloat?
-    var file: String? // nome do arquivo (imagem/áudio)
+    var file: String?
     var duration: TimeInterval?
     var scale: CGFloat?
+    var highlightColor: String?
 }
 
 // MARK: - Connection (setas entre elementos)

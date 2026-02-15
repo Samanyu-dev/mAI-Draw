@@ -118,9 +118,11 @@ class CanvasContainer: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        #if !MAIDRAW_PHONE
         if window != nil {
             coordinator?.activateDrawing()
         }
+        #endif
     }
 }
 
@@ -171,6 +173,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     // Delete button
     private var activeDeleteButton: UIButton?
+    private var activeHighlightButton: UIButton?
     private var deleteTargetView: UIView?
 
     // Connections (setas entre elementos)
@@ -209,7 +212,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         scroll.showsHorizontalScrollIndicator = false
         scroll.showsVerticalScrollIndicator = false
         scroll.contentInsetAdjustmentBehavior = .never
-        scroll.backgroundColor = UIColor(red: 0.94, green: 0.94, blue: 0.94, alpha: 1.0)
+        scroll.backgroundColor = state.isDarkMode
+            ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1.0)
+            : UIColor(red: 0.94, green: 0.94, blue: 0.94, alpha: 1.0)
         scroll.panGestureRecognizer.allowedTouchTypes = [
             NSNumber(value: UITouch.TouchType.direct.rawValue),
             NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)
@@ -222,7 +227,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         self.scrollView = scroll
 
         let container = CanvasContainer(frame: CGRect(origin: .zero, size: canvasSize))
-        container.backgroundColor = UIColor(patternImage: Self.dotGridPattern())
+        container.backgroundColor = UIColor(patternImage: Self.dotGridPattern(dark: state.isDarkMode))
         self.containerView = container
         scroll.addSubview(container)
         scroll.contentSize = canvasSize
@@ -813,11 +818,218 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // MARK: - Shared Gestures
 
     private func addDragGestures(to view: UIView) {
-        // Drag e pinch de elementos são handled pelo fingerPan/fingerTap no canvas
-        // Aqui só adicionamos tap pra ativar edição de texto
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleElementTap(_:)))
         tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
         view.addGestureRecognizer(tap)
+
+    }
+
+    // MARK: - Highlight Scribble
+
+    private static let highlightLayerName = "scribbleHighlight"
+
+    private static let highlightColors: [UIColor] = [
+        UIColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 0.8),
+        UIColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 0.8),
+        UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 0.8),
+        UIColor(red: 0.6, green: 0.3, blue: 0.9, alpha: 0.8),
+        UIColor(red: 0.95, green: 0.5, blue: 0.1, alpha: 0.8),
+        UIColor(red: 0.9, green: 0.3, blue: 0.6, alpha: 0.8),
+        UIColor(red: 0.1, green: 0.7, blue: 0.8, alpha: 0.8),
+    ]
+
+    static let highlightColorNames: [UIColor: String] = {
+        var map: [UIColor: String] = [:]
+        let names = ["red", "blue", "green", "purple", "orange", "pink", "cyan"]
+        for (i, color) in highlightColors.enumerated() {
+            map[color] = names[i]
+        }
+        return map
+    }()
+
+    static let highlightColorFromName: [String: UIColor] = {
+        var map: [String: UIColor] = [:]
+        let names = ["red", "blue", "green", "purple", "orange", "pink", "cyan"]
+        for (i, name) in names.enumerated() {
+            map[name] = highlightColors[i]
+        }
+        return map
+    }()
+
+    @objc private func highlightButtonTapped() {
+        guard let view = deleteTargetView else { return }
+        toggleHighlight(on: view)
+    }
+
+    func toggleHighlightOnSelected() {
+        if let view = deleteTargetView {
+            toggleHighlight(on: view)
+        }
+    }
+
+    private func toggleHighlight(on view: UIView) {
+        // Remove existing highlight
+        if let existing = view.layer.sublayers?.first(where: { $0.name == Self.highlightLayerName }) {
+            existing.removeFromSuperlayer()
+            return
+        }
+        // Add new highlight with random color
+        let color = Self.highlightColors.randomElement()!
+        addScribbleHighlight(to: view, color: color)
+    }
+
+    private enum ScribbleStyle: CaseIterable {
+        case oval, roundedRect, zigzag, cloud, spiral
+    }
+
+    func addScribbleHighlight(to view: UIView, color: UIColor) {
+        addScribbleHighlight(to: view, color: color, style: nil)
+    }
+
+    private func addScribbleHighlight(to view: UIView, color: UIColor, style forceStyle: ScribbleStyle?) {
+        let bounds = view.bounds
+        let inset: CGFloat = -8
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let style = forceStyle ?? ScribbleStyle.allCases.randomElement()!
+
+        let path = UIBezierPath()
+
+        switch style {
+        case .oval:
+            drawOvalScribble(path: path, in: rect)
+        case .roundedRect:
+            drawRoundedRectScribble(path: path, in: rect)
+        case .zigzag:
+            drawZigzagScribble(path: path, in: rect)
+        case .cloud:
+            drawCloudScribble(path: path, in: rect)
+        case .spiral:
+            drawSpiralScribble(path: path, in: rect)
+        }
+
+        let layer = CAShapeLayer()
+        layer.name = Self.highlightLayerName
+        layer.path = path.cgPath
+        layer.strokeColor = color.cgColor
+        layer.fillColor = nil
+        layer.lineWidth = 2.5
+        layer.lineCap = .round
+        layer.lineJoin = .round
+        view.layer.addSublayer(layer)
+    }
+
+    // Estilo 1: Oval clássico (2 passadas)
+    private func drawOvalScribble(path: UIBezierPath, in rect: CGRect) {
+        let cx = rect.midX, cy = rect.midY
+        let rx = rect.width / 2, ry = rect.height / 2
+        let steps = 60
+        for pass in 0..<2 {
+            let offset = CGFloat(pass) * 1.5
+            for i in 0...steps {
+                let angle = CGFloat(i) / CGFloat(steps) * .pi * 2
+                let nx = CGFloat.random(in: -3...3)
+                let ny = CGFloat.random(in: -3...3)
+                let px = cx + (rx + nx + offset) * cos(angle)
+                let py = cy + (ry + ny + offset) * sin(angle)
+                if i == 0 && pass == 0 { path.move(to: CGPoint(x: px, y: py)) }
+                else { path.addLine(to: CGPoint(x: px, y: py)) }
+            }
+        }
+    }
+
+    // Estilo 2: Retângulo arredondado rabiscado
+    private func drawRoundedRectScribble(path: UIBezierPath, in rect: CGRect) {
+        let cornerRadius: CGFloat = min(rect.width, rect.height) * 0.2
+        let corners = [
+            CGPoint(x: rect.minX + cornerRadius, y: rect.minY),
+            CGPoint(x: rect.maxX - cornerRadius, y: rect.minY),
+            CGPoint(x: rect.maxX, y: rect.minY + cornerRadius),
+            CGPoint(x: rect.maxX, y: rect.maxY - cornerRadius),
+            CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY),
+            CGPoint(x: rect.minX + cornerRadius, y: rect.maxY),
+            CGPoint(x: rect.minX, y: rect.maxY - cornerRadius),
+            CGPoint(x: rect.minX, y: rect.minY + cornerRadius)
+        ]
+        for pass in 0..<2 {
+            let off = CGFloat(pass) * 2
+            for (i, corner) in corners.enumerated() {
+                let next = corners[(i + 1) % corners.count]
+                let steps = 12
+                for s in 0...steps {
+                    let t = CGFloat(s) / CGFloat(steps)
+                    let px = corner.x + (next.x - corner.x) * t + CGFloat.random(in: -3...3) + off
+                    let py = corner.y + (next.y - corner.y) * t + CGFloat.random(in: -3...3) + off
+                    if i == 0 && s == 0 && pass == 0 { path.move(to: CGPoint(x: px, y: py)) }
+                    else { path.addLine(to: CGPoint(x: px, y: py)) }
+                }
+            }
+        }
+    }
+
+    // Estilo 3: Zigzag circular (dentes em volta)
+    private func drawZigzagScribble(path: UIBezierPath, in rect: CGRect) {
+        let cx = rect.midX, cy = rect.midY
+        let rx = rect.width / 2, ry = rect.height / 2
+        let steps = 40
+        for i in 0...steps {
+            let angle = CGFloat(i) / CGFloat(steps) * .pi * 2
+            let spike = (i % 2 == 0) ? CGFloat.random(in: 6...12) : CGFloat.random(in: -4...0)
+            let px = cx + (rx + spike) * cos(angle) + CGFloat.random(in: -2...2)
+            let py = cy + (ry + spike) * sin(angle) + CGFloat.random(in: -2...2)
+            if i == 0 { path.move(to: CGPoint(x: px, y: py)) }
+            else { path.addLine(to: CGPoint(x: px, y: py)) }
+        }
+    }
+
+    // Estilo 4: Nuvem (bolhinhas em volta)
+    private func drawCloudScribble(path: UIBezierPath, in rect: CGRect) {
+        let cx = rect.midX, cy = rect.midY
+        let rx = rect.width / 2, ry = rect.height / 2
+        let bumps = 16
+        for pass in 0..<2 {
+            let off = CGFloat(pass) * 2
+            for i in 0...bumps {
+                let angle = CGFloat(i) / CGFloat(bumps) * .pi * 2
+                let bumpSize = CGFloat.random(in: 6...14)
+                let midAngle = (CGFloat(i) + 0.5) / CGFloat(bumps) * .pi * 2
+                let basePx = cx + (rx + off) * cos(angle)
+                let basePy = cy + (ry + off) * sin(angle)
+                let bumpPx = cx + (rx + bumpSize + off) * cos(midAngle) + CGFloat.random(in: -2...2)
+                let bumpPy = cy + (ry + bumpSize + off) * sin(midAngle) + CGFloat.random(in: -2...2)
+                if i == 0 && pass == 0 {
+                    path.move(to: CGPoint(x: basePx, y: basePy))
+                }
+                path.addQuadCurve(to: CGPoint(x: basePx, y: basePy),
+                                  controlPoint: CGPoint(x: bumpPx, y: bumpPy))
+            }
+        }
+    }
+
+    // Estilo 5: Espiral (circula 1.5 voltas)
+    private func drawSpiralScribble(path: UIBezierPath, in rect: CGRect) {
+        let cx = rect.midX, cy = rect.midY
+        let rx = rect.width / 2, ry = rect.height / 2
+        let totalSteps = 90
+        let totalAngle: CGFloat = .pi * 3 // 1.5 voltas
+        for i in 0...totalSteps {
+            let t = CGFloat(i) / CGFloat(totalSteps)
+            let angle = t * totalAngle
+            let grow = 1.0 + t * 0.15 // espiral cresce levemente
+            let nx = CGFloat.random(in: -2.5...2.5)
+            let ny = CGFloat.random(in: -2.5...2.5)
+            let px = cx + (rx * grow + nx) * cos(angle)
+            let py = cy + (ry * grow + ny) * sin(angle)
+            if i == 0 { path.move(to: CGPoint(x: px, y: py)) }
+            else { path.addLine(to: CGPoint(x: px, y: py)) }
+        }
+    }
+
+    /// Returns the highlight color name for a view, or nil if no highlight
+    func highlightColorName(for view: UIView) -> String? {
+        guard let layer = view.layer.sublayers?.first(where: { $0.name == Self.highlightLayerName }) as? CAShapeLayer,
+              let cgColor = layer.strokeColor else { return nil }
+        let uiColor = UIColor(cgColor: cgColor)
+        return Self.highlightColorNames[uiColor]
     }
 
     /// Traz elemento pra frente (abaixo do canvas) e ativa textView se tiver
@@ -856,12 +1068,15 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         if deleteTargetView === view && activeDeleteButton != nil { return }
         hideDeleteButton()
 
-        guard let container = containerView, let canvas = canvasView else { return }
+        guard let container = containerView else { return }
 
         deleteTargetView = view
 
-        let btn = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        let size: CGFloat = 36
+
+        // --- Botão Lixeira (canto superior direito) ---
+        let btn = UIButton(type: .system)
         btn.setImage(UIImage(systemName: "trash.fill", withConfiguration: config), for: .normal)
         btn.tintColor = .white
         btn.backgroundColor = UIColor.systemRed
@@ -870,39 +1085,58 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         btn.layer.shadowOpacity = 0.3
         btn.layer.shadowRadius = 4
         btn.layer.shadowOffset = CGSize(width: 0, height: 2)
-
-        let size: CGFloat = 36
-        // Posicionar no canto superior direito do elemento
-        let topRight = CGPoint(
+        btn.frame = CGRect(
             x: view.frame.maxX - size / 2 + 8,
-            y: view.frame.minY - size / 2 + 8
+            y: view.frame.minY - size / 2 + 8,
+            width: size, height: size
         )
-        btn.frame = CGRect(x: topRight.x, y: topRight.y, width: size, height: size)
-
         btn.addTarget(self, action: #selector(deleteElementTapped), for: .touchUpInside)
-
-        // Inserir acima do canvas pra garantir que fica visível e clicável
         container.addSubview(btn)
         activeDeleteButton = btn
 
-        // Animação de entrada
-        btn.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
-        btn.alpha = 0
+        // --- Botão Highlight (à esquerda da lixeira) ---
+        let hlBtn = UIButton(type: .system)
+        hlBtn.setImage(UIImage(systemName: "lasso", withConfiguration: config), for: .normal)
+        hlBtn.tintColor = .white
+        hlBtn.backgroundColor = UIColor.systemOrange
+        hlBtn.layer.cornerRadius = 18
+        hlBtn.layer.shadowColor = UIColor.black.cgColor
+        hlBtn.layer.shadowOpacity = 0.3
+        hlBtn.layer.shadowRadius = 4
+        hlBtn.layer.shadowOffset = CGSize(width: 0, height: 2)
+        hlBtn.frame = CGRect(
+            x: view.frame.maxX - size / 2 + 8 - size - 8,
+            y: view.frame.minY - size / 2 + 8,
+            width: size, height: size
+        )
+        hlBtn.addTarget(self, action: #selector(highlightButtonTapped), for: .touchUpInside)
+        container.addSubview(hlBtn)
+        activeHighlightButton = hlBtn
+
+        // Animação de entrada (ambos)
+        for b in [btn, hlBtn] {
+            b.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            b.alpha = 0
+        }
         UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
             btn.transform = .identity
             btn.alpha = 1
+            hlBtn.transform = .identity
+            hlBtn.alpha = 1
         }
     }
 
     private func hideDeleteButton() {
-        guard let btn = activeDeleteButton else { return }
-        UIView.animate(withDuration: 0.15, animations: {
-            btn.alpha = 0
-            btn.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
-        }) { _ in
-            btn.removeFromSuperview()
+        for btn in [activeDeleteButton, activeHighlightButton].compactMap({ $0 }) {
+            UIView.animate(withDuration: 0.15, animations: {
+                btn.alpha = 0
+                btn.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            }) { _ in
+                btn.removeFromSuperview()
+            }
         }
         activeDeleteButton = nil
+        activeHighlightButton = nil
         deleteTargetView = nil
     }
 
@@ -1453,8 +1687,21 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         // Posicionar bem à esquerda do centro (mapa mental ficará à direita)
         let pos = CGPoint(x: center.x - 900, y: center.y)
 
+        let blockWidth: CGFloat = 400
+        let headerHeight: CGFloat = 50 // título + separador
+        let padding: CGFloat = 12
+
+        // Calcular altura necessária para o texto
+        let textWidth = blockWidth - (padding * 2)
+        let tempTextView = UITextView()
+        tempTextView.text = text
+        tempTextView.font = .systemFont(ofSize: 14)
+        let textSize = tempTextView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude))
+        let textHeight = ceil(textSize.height) + 16 // margem extra
+        let totalHeight = headerHeight + textHeight + padding
+
         let block = UIView()
-        block.frame = CGRect(x: pos.x - 200, y: pos.y - 250, width: 400, height: 500)
+        block.frame = CGRect(x: pos.x - blockWidth / 2, y: pos.y - totalHeight / 2, width: blockWidth, height: totalHeight)
         block.backgroundColor = UIColor.systemBackground
         block.layer.cornerRadius = 12
         block.layer.borderWidth = 1
@@ -1470,12 +1717,12 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         headerLabel.text = "  Resumo do Vídeo"
         headerLabel.font = .systemFont(ofSize: 16, weight: .bold)
         headerLabel.textColor = .label
-        headerLabel.frame = CGRect(x: 16, y: 12, width: 368, height: 28)
+        headerLabel.frame = CGRect(x: 16, y: 12, width: blockWidth - 32, height: 28)
         block.addSubview(headerLabel)
 
         // Separador
         let separator = UIView()
-        separator.frame = CGRect(x: 16, y: 44, width: 368, height: 1)
+        separator.frame = CGRect(x: 16, y: 44, width: blockWidth - 32, height: 1)
         separator.backgroundColor = .separator
         block.addSubview(separator)
 
@@ -1486,10 +1733,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         textView.font = .systemFont(ofSize: 14)
         textView.textColor = .label
         textView.backgroundColor = .clear
-        textView.isScrollEnabled = true
+        textView.isScrollEnabled = false
         textView.isEditable = true
-        textView.frame = CGRect(x: 12, y: 50, width: 376, height: 440)
-        textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        textView.frame = CGRect(x: padding, y: headerHeight, width: textWidth, height: textHeight)
         textView.tintColor = currentTextColor
         textView.dataDetectorTypes = []
         textView.linkTextAttributes = [:]
@@ -2209,9 +2455,37 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     func saveProject() {
         guard let container = containerView, let canvas = canvasView else { return }
 
-        // Persistir prompt de ilustração globalmente
         UserDefaults.standard.set(state.prompt, forKey: "illustrationPrompt")
 
+        let (doc, drawingData, thumbnail) = collectProjectData(container: container, canvas: canvas)
+
+        // Save to local cache for instant access
+        StorageService.save(document: doc, drawing: canvas.drawing, thumbnail: thumbnail)
+
+        // Save to cloud (source of truth) — fire and forget for auto-save
+        Task {
+            await SyncService.saveProject(doc, drawingData: drawingData, thumbnail: thumbnail)
+        }
+    }
+
+    /// Save locally + await cloud upload (used when closing canvas)
+    func saveAndSync() async {
+        guard let container = containerView, let canvas = canvasView else { return }
+
+        // Collect all data (same logic as saveProject but without firing background Task)
+        UserDefaults.standard.set(state.prompt, forKey: "illustrationPrompt")
+
+        let (doc, drawingData, thumbnail) = collectProjectData(container: container, canvas: canvas)
+
+        // Save to local cache
+        StorageService.save(document: doc, drawing: canvas.drawing, thumbnail: thumbnail)
+
+        // Await cloud upload (blocking — waits for completion)
+        await SyncService.saveProject(doc, drawingData: drawingData, thumbnail: thumbnail)
+    }
+
+    /// Collects project data from canvas without saving
+    private func collectProjectData(container: UIView, canvas: PKCanvasView) -> (CanvasDocument, Data, UIImage?) {
         var elements: [CanvasElement] = []
         var fileIndex = 0
 
@@ -2221,60 +2495,33 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             if connectionPoints.contains(sibling) { continue }
             if sibling.alpha <= 0 || sibling.isHidden { continue }
 
-            // Texto avulso
+            let hl = highlightColorName(for: sibling)
+
             if let tv = sibling as? UITextView {
                 let text = (tv.tag == Self.placeholderTag) ? "" : (tv.text ?? "")
-                elements.append(CanvasElement(
-                    type: .text,
-                    text: text,
-                    x: sibling.frame.origin.x,
-                    y: sibling.frame.origin.y,
-                    width: sibling.frame.width,
-                    height: sibling.frame.height
-                ))
+                elements.append(CanvasElement(type: .text, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, highlightColor: hl))
                 continue
             }
 
-            // Post-it (UIView com UITextView + cor de fundo)
             if let bgColor = sibling.backgroundColor,
                sibling.subviews.contains(where: { $0 is UITextView }) {
                 let textView = sibling.subviews.compactMap { $0 as? UITextView }.first
                 let text = (textView?.tag == Self.placeholderTag) ? "" : (textView?.text ?? "")
                 let color = PostItColor.from(uiColor: bgColor)
                 let rotation = atan2(sibling.transform.b, sibling.transform.a)
-                elements.append(CanvasElement(
-                    type: .postit,
-                    text: text,
-                    x: sibling.frame.origin.x,
-                    y: sibling.frame.origin.y,
-                    width: sibling.bounds.width,
-                    height: sibling.bounds.height,
-                    color: color,
-                    rotation: rotation
-                ))
+                elements.append(CanvasElement(type: .postit, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.bounds.width, height: sibling.bounds.height, color: color, rotation: rotation, highlightColor: hl))
                 continue
             }
 
-            // Imagem
             if let imgView = sibling as? UIImageView, let image = imgView.image {
                 let filename = "img_\(fileIndex).jpg"
                 fileIndex += 1
                 StorageService.saveImage(image, named: filename, canvasId: projectId)
-                elements.append(CanvasElement(
-                    type: sibling.tag == 888 ? .strokeGroup : .image,
-                    x: sibling.frame.origin.x,
-                    y: sibling.frame.origin.y,
-                    width: sibling.frame.width,
-                    height: sibling.frame.height,
-                    file: filename
-                ))
+                elements.append(CanvasElement(type: sibling.tag == 888 ? .strokeGroup : .image, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, highlightColor: hl))
                 continue
             }
 
-            // Audio player widget
-            if sibling.subviews.contains(where: { $0 is UIButton }) &&
-               sibling.layer.cornerRadius == 12 {
-                // Extrair URL do áudio do botão play
+            if sibling.subviews.contains(where: { $0 is UIButton }) && sibling.layer.cornerRadius == 12 {
                 if let playBtn = sibling.subviews.compactMap({ $0 as? UIButton }).first,
                    let audioURL = objc_getAssociatedObject(playBtn, &Self.audioURLKey) as? URL {
                     let filename = audioURL.lastPathComponent
@@ -2283,29 +2530,18 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                     let durationText = durationLabel?.text ?? "0:00"
                     let parts = durationText.split(separator: ":")
                     let duration = parts.count == 2 ? (Double(parts[0]) ?? 0) * 60 + (Double(parts[1]) ?? 0) : 0
-
-                    elements.append(CanvasElement(
-                        type: .audio,
-                        x: sibling.frame.origin.x,
-                        y: sibling.frame.origin.y,
-                        width: sibling.frame.width,
-                        height: sibling.frame.height,
-                        file: filename,
-                        duration: duration
-                    ))
+                    elements.append(CanvasElement(type: .audio, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, duration: duration, highlightColor: hl))
                 }
                 continue
             }
         }
 
-        // Serializar conexões — mapear views pra índices
         var viewToIndex: [ObjectIdentifier: Int] = [:]
         var viewIndex = 0
         for sibling in container.subviews {
             if sibling === canvas || sibling === lassoOverlay || sibling === selectionBox { continue }
             if sibling === activeDeleteButton { continue }
             if sibling.alpha <= 0 || sibling.isHidden { continue }
-            // Pular connection points
             if connectionPoints.contains(where: { $0 === sibling }) { continue }
             viewToIndex[ObjectIdentifier(sibling)] = viewIndex
             viewIndex += 1
@@ -2330,18 +2566,41 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         )
 
         let thumbnail = captureCanvas()
-        StorageService.save(document: doc, drawing: canvas.drawing, thumbnail: thumbnail)
+        let drawingData = canvas.drawing.dataRepresentation()
+
+        return (doc, drawingData, thumbnail)
     }
 
     func loadProject() {
-        guard let doc = StorageService.loadDocument(id: projectId) else { return }
+        // Try local cache first for instant display
+        if let localDoc = StorageService.loadDocument(id: projectId) {
+            restoreDocument(localDoc)
+        }
 
+        // Then fetch from cloud (source of truth) and update
+        Task {
+            if let cloudDoc = await SyncService.loadDocument(id: projectId) {
+                await MainActor.run {
+                    restoreDocument(cloudDoc)
+                }
+            }
+        }
+    }
+
+    private func restoreDocument(_ doc: CanvasDocument) {
         state.prompt = doc.prompt
 
         // Carregar drawing
         if let drawing = StorageService.loadDrawing(id: projectId) {
             canvasView?.drawing = drawing
         }
+
+        // Limpar elementos existentes antes de restaurar
+        for (_, view) in allElementViews {
+            view.removeFromSuperview()
+        }
+        allElementViews.removeAll()
+        imageViews.removeAll()
 
         // Array ordenado para mapear índices → views (para restaurar conexões)
         var loadedViews: [UIView?] = []
@@ -2380,6 +2639,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 addDragGestures(to: textView)
                 addElementToCanvas(textView)
                 allElementViews[UUID()] = textView
+                if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
+                    addScribbleHighlight(to: textView, color: hlColor)
+                }
                 loadedViews.append(textView)
 
             case .postit:
@@ -2425,6 +2687,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 addDragGestures(to: postIt)
                 addElementToCanvas(postIt)
                 allElementViews[UUID()] = postIt
+                if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
+                    addScribbleHighlight(to: postIt, color: hlColor)
+                }
                 loadedViews.append(postIt)
 
             case .image, .strokeGroup:
@@ -2450,6 +2715,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 allElementViews[id] = imgView
                 if element.type == .image {
                     imageViews[id] = imgView
+                }
+                if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
+                    addScribbleHighlight(to: imgView, color: hlColor)
                 }
                 loadedViews.append(imgView)
 

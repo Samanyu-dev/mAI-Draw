@@ -19,6 +19,28 @@
 		EB4D91668749F218EA1695AF /* StorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65FFD7E5E6AC5060AA85D2EA /* StorageService.swift */; };
 		FE4B4791CE17AD693ECD1FE4 /* BrainDumpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA334ABA2E56200815F9DB53 /* BrainDumpView.swift */; };
 		FEBF46C954DB65844AABBB4C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1999CEEC50190A1FBE3DB7BE /* ContentView.swift */; };
+		C1A2B3C4D5E6F7A8B9C0D1E2 /* AudioWaveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F5E6D7C8B9A0F1E2D3C4B5 /* AudioWaveView.swift */; };
+		B1A2C3D4E5F6A7B8C9D0E1F2 /* PhoneApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F2E3D4C5B6A7F8E9D0C1B2 /* PhoneApp.swift */; };
+		C2A3B4C5D6E7F8A9B0C1D2E3 /* CanvasCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFB801E3E7B0CDD32BD9B9D /* CanvasCoordinator.swift */; };
+		C3A4B5C6D7E8F9A0B1C2D3E4 /* CanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA52A2B9A1C158A070BC9E62 /* CanvasView.swift */; };
+		C4A5B6C7D8E9F0A1B2C3D4E5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1999CEEC50190A1FBE3DB7BE /* ContentView.swift */; };
+		B3A4C5D6E7F8A9B0C1D2E3F4 /* AudioWaveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F5E6D7C8B9A0F1E2D3C4B5 /* AudioWaveView.swift */; };
+		B4A5C6D7E8F9A0B1C2D3E4F5 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AE32FA9D18D70C08DF86D3 /* Models.swift */; };
+		B5A6C7D8E9F0A1B2C3D4E5F6 /* GeminiService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D53EC4BA4FB003211C90E6 /* GeminiService.swift */; };
+		B6A7C8D9E0F1A2B3C4D5E6F7 /* StorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65FFD7E5E6AC5060AA85D2EA /* StorageService.swift */; };
+		B7A8C9D0E1F2A3B4C5D6E7F8 /* WhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFED7604449E7B9CB738217E /* WhisperService.swift */; };
+		B8A9C0D1E2F3A4B5C6D7E8F9 /* YouTubeTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34E66D9E4EC602DEE4D6C936 /* YouTubeTranscriptService.swift */; };
+		B9AAC1D2E3F4A5B6C7D8E9F0 /* ProjectGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D8B39CA941AD5344D1154B6 /* ProjectGalleryView.swift */; };
+		B0ABC2D3E4F5A6B7C8D9E0F1 /* BrainDumpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA334ABA2E56200815F9DB53 /* BrainDumpView.swift */; };
+		B1BCC3D4E5F6A7B8C9D0E1F2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F6F0ED5EE6E79740E7BC22D8 /* Assets.xcassets */; };
+		E2A3B4C5D6E7F8A9B0C1D2E4 /* SupabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F7A8B9C0D1E3 /* SupabaseManager.swift */; };
+		E3A4B5C6D7E8F9A0B1C2D3E5 /* SupabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F7A8B9C0D1E3 /* SupabaseManager.swift */; };
+		E5A6B7C8D9E0F1A2B3C4D5E7 /* AuthState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A5B6C7D8E9F0A1B2C3D4E6 /* AuthState.swift */; };
+		E6A7B8C9D0E1F2A3B4C5D6E8 /* AuthState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A5B6C7D8E9F0A1B2C3D4E6 /* AuthState.swift */; };
+		E8A9B0C1D2E3F4A5B6C7D8E0 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A8B9C0D1E2F3A4B5C6D7E9 /* LoginView.swift */; };
+		E9A0B1C2D3E4F5A6B7C8D9E1 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A8B9C0D1E2F3A4B5C6D7E9 /* LoginView.swift */; };
+		F2B3C4D5E6F7A8B9C0D1E2F4 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B2C3D4E5F6A7B8C9D0E1F3 /* SyncService.swift */; };
+		F3B4C5D6E7F8A9B0C1D2E3F5 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1B2C3D4E5F6A7B8C9D0E1F3 /* SyncService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +58,15 @@
 		EA52A2B9A1C158A070BC9E62 /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		EBFB801E3E7B0CDD32BD9B9D /* CanvasCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasCoordinator.swift; sourceTree = "<group>"; };
 		F6F0ED5EE6E79740E7BC22D8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1F2E3D4C5B6A7F8E9D0C1B2 /* PhoneApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneApp.swift; sourceTree = "<group>"; };
+		A2F3E4D5C6B7A8F9E0D1C2B3 /* PhoneContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneContentView.swift; sourceTree = "<group>"; };
+		A3F4E5D6C7B8A9F0E1D2C3B4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A4F5E6D7C8B9A0F1E2D3C4B5 /* AudioWaveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveView.swift; sourceTree = "<group>"; };
+		A5F6E7D8C9B0A1F2E3D4C5B6 /* mAIDrawPhone.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = mAIDrawPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E1A2B3C4D5E6F7A8B9C0D1E3 /* SupabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseManager.swift; sourceTree = "<group>"; };
+		E4A5B6C7D8E9F0A1B2C3D4E6 /* AuthState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthState.swift; sourceTree = "<group>"; };
+		E7A8B9C0D1E2F3A4B5C6D7E9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		F1B2C3D4E5F6A7B8C9D0E1F3 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -43,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				F6F0ED5EE6E79740E7BC22D8 /* Assets.xcassets */,
+				A4F5E6D7C8B9A0F1E2D3C4B5 /* AudioWaveView.swift */,
 				DA334ABA2E56200815F9DB53 /* BrainDumpView.swift */,
 				EBFB801E3E7B0CDD32BD9B9D /* CanvasCoordinator.swift */,
 				EA52A2B9A1C158A070BC9E62 /* CanvasView.swift */,
@@ -53,16 +85,31 @@
 				75AE32FA9D18D70C08DF86D3 /* Models.swift */,
 				2D8B39CA941AD5344D1154B6 /* ProjectGalleryView.swift */,
 				65FFD7E5E6AC5060AA85D2EA /* StorageService.swift */,
+				E1A2B3C4D5E6F7A8B9C0D1E3 /* SupabaseManager.swift */,
+				E4A5B6C7D8E9F0A1B2C3D4E6 /* AuthState.swift */,
+				E7A8B9C0D1E2F3A4B5C6D7E9 /* LoginView.swift */,
+				F1B2C3D4E5F6A7B8C9D0E1F3 /* SyncService.swift */,
 				CFED7604449E7B9CB738217E /* WhisperService.swift */,
 				34E66D9E4EC602DEE4D6C936 /* YouTubeTranscriptService.swift */,
 			);
 			path = IllustratorApp;
 			sourceTree = "<group>";
 		};
+		D1E2F3A4B5C6D7E8F9A0B1C2 /* mAIDrawPhone */ = {
+			isa = PBXGroup;
+			children = (
+				A3F4E5D6C7B8A9F0E1D2C3B4 /* Info.plist */,
+				A1F2E3D4C5B6A7F8E9D0C1B2 /* PhoneApp.swift */,
+				A2F3E4D5C6B7A8F9E0D1C2B3 /* PhoneContentView.swift */,
+			);
+			path = mAIDrawPhone;
+			sourceTree = "<group>";
+		};
 		72249A171BE54D3ED5A29294 = {
 			isa = PBXGroup;
 			children = (
 				4D51ABF09DAF2349A04E3928 /* IllustratorApp */,
+				D1E2F3A4B5C6D7E8F9A0B1C2 /* mAIDrawPhone */,
 				F51D9FF9AEE768B906E2F4AF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,11 +118,29 @@
 			isa = PBXGroup;
 			children = (
 				D1CD5313CFB973F9C8B356AF /* IllustratorApp.app */,
+				A5F6E7D8C9B0A1F2E3D4C5B6 /* mAIDrawPhone.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA1122334455667788990011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB2233445566778899001122 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXNativeTarget section */
 		F0DA56F04DEEDE20568FEE33 /* IllustratorApp */ = {
@@ -83,6 +148,7 @@
 			buildConfigurationList = 66E775066260A95918B29DAE /* Build configuration list for PBXNativeTarget "IllustratorApp" */;
 			buildPhases = (
 				8F6A28FBCF31A3258A75E424 /* Sources */,
+				AA1122334455667788990011 /* Frameworks */,
 				48BA14333D2C05C9FADF30C3 /* Resources */,
 			);
 			buildRules = (
@@ -91,9 +157,30 @@
 			);
 			name = IllustratorApp;
 			packageProductDependencies = (
+				D2A3B4C5D6E7F8A9B0C1D2E4 /* Supabase */,
 			);
 			productName = IllustratorApp;
 			productReference = D1CD5313CFB973F9C8B356AF /* IllustratorApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		F1A2B3C4D5E6F7A8B9C0D1E2 /* mAIDrawPhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 13A4B5C6D7E8F9A0B1C2D3E4 /* Build configuration list for PBXNativeTarget "mAIDrawPhone" */;
+			buildPhases = (
+				E1F2A3B4C5D6E7F8A9B0C1D2 /* Sources */,
+				BB2233445566778899001122 /* Frameworks */,
+				E2F3A4B5C6D7E8F9A0B1C2D3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = mAIDrawPhone;
+			packageProductDependencies = (
+				D3A4B5C6D7E8F9A0B1C2D3E5 /* Supabase */,
+			);
+			productName = mAIDrawPhone;
+			productReference = A5F6E7D8C9B0A1F2E3D4C5B6 /* mAIDrawPhone.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -106,6 +193,10 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					F0DA56F04DEEDE20568FEE33 = {
+						DevelopmentTeam = M9H9BY85BH;
+						ProvisioningStyle = Automatic;
+					};
+					F1A2B3C4D5E6F7A8B9C0D1E2 = {
 						DevelopmentTeam = M9H9BY85BH;
 						ProvisioningStyle = Automatic;
 					};
@@ -122,10 +213,14 @@
 			mainGroup = 72249A171BE54D3ED5A29294;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			packageReferences = (
+				D1A2B3C4D5E6F7A8B9C0D1E3 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				F0DA56F04DEEDE20568FEE33 /* IllustratorApp */,
+				F1A2B3C4D5E6F7A8B9C0D1E2 /* mAIDrawPhone */,
 			);
 		};
 /* End PBXProject section */
@@ -139,6 +234,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E2F3A4B5C6D7E8F9A0B1C2D3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1BCC3D4E5F6A7B8C9D0E1F2 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -146,6 +249,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C1A2B3C4D5E6F7A8B9C0D1E2 /* AudioWaveView.swift in Sources */,
 				FE4B4791CE17AD693ECD1FE4 /* BrainDumpView.swift in Sources */,
 				A06D52D9539554D5ED356FB3 /* CanvasCoordinator.swift in Sources */,
 				B983C12CFE3D0010692E9115 /* CanvasView.swift in Sources */,
@@ -155,8 +259,35 @@
 				6A0356506CC2FE46CE7043F8 /* Models.swift in Sources */,
 				55BF7311A63500BBDF1A56BB /* ProjectGalleryView.swift in Sources */,
 				EB4D91668749F218EA1695AF /* StorageService.swift in Sources */,
+				E2A3B4C5D6E7F8A9B0C1D2E4 /* SupabaseManager.swift in Sources */,
+				E5A6B7C8D9E0F1A2B3C4D5E7 /* AuthState.swift in Sources */,
+				E8A9B0C1D2E3F4A5B6C7D8E0 /* LoginView.swift in Sources */,
+				F2B3C4D5E6F7A8B9C0D1E2F4 /* SyncService.swift in Sources */,
 				D8DDE479BA4E6EC07E0027B0 /* WhisperService.swift in Sources */,
 				30C48F38A08199FC70FA7066 /* YouTubeTranscriptService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E1F2A3B4C5D6E7F8A9B0C1D2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B3A4C5D6E7F8A9B0C1D2E3F4 /* AudioWaveView.swift in Sources */,
+				B0ABC2D3E4F5A6B7C8D9E0F1 /* BrainDumpView.swift in Sources */,
+				C2A3B4C5D6E7F8A9B0C1D2E3 /* CanvasCoordinator.swift in Sources */,
+				C3A4B5C6D7E8F9A0B1C2D3E4 /* CanvasView.swift in Sources */,
+				C4A5B6C7D8E9F0A1B2C3D4E5 /* ContentView.swift in Sources */,
+				B5A6C7D8E9F0A1B2C3D4E5F6 /* GeminiService.swift in Sources */,
+				B4A5C6D7E8F9A0B1C2D3E4F5 /* Models.swift in Sources */,
+				B1A2C3D4E5F6A7B8C9D0E1F2 /* PhoneApp.swift in Sources */,
+				B9AAC1D2E3F4A5B6C7D8E9F0 /* ProjectGalleryView.swift in Sources */,
+				B6A7C8D9E0F1A2B3C4D5E6F7 /* StorageService.swift in Sources */,
+				E3A4B5C6D7E8F9A0B1C2D3E5 /* SupabaseManager.swift in Sources */,
+				E6A7B8C9D0E1F2A3B4C5D6E8 /* AuthState.swift in Sources */,
+				E9A0B1C2D3E4F5A6B7C8D9E1 /* LoginView.swift in Sources */,
+				F3B4C5D6E7F8A9B0C1D2E3F5 /* SyncService.swift in Sources */,
+				B7A8C9D0E1F2A3B4C5D6E7F8 /* WhisperService.swift in Sources */,
+				B8A9C0D1E2F3A4B5C6D7E8F9 /* YouTubeTranscriptService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -328,6 +459,54 @@
 			};
 			name = Debug;
 		};
+		11A2B3C4D5E6F7A8B9C0D1E2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M9H9BY85BH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = mAIDrawPhone/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.loop9.mAIDrawPhone;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG MAIDRAW_PHONE";
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		12A3B4C5D6E7F8A9B0C1D2E3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M9H9BY85BH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = mAIDrawPhone/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.loop9.mAIDrawPhone;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = MAIDRAW_PHONE;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -349,7 +528,40 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		13A4B5C6D7E8F9A0B1C2D3E4 /* Build configuration list for PBXNativeTarget "mAIDrawPhone" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11A2B3C4D5E6F7A8B9C0D1E2 /* Debug */,
+				12A3B4C5D6E7F8A9B0C1D2E3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D1A2B3C4D5E6F7A8B9C0D1E3 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D2A3B4C5D6E7F8A9B0C1D2E4 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D1A2B3C4D5E6F7A8B9C0D1E3 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		D3A4B5C6D7E8F9A0B1C2D3E5 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D1A2B3C4D5E6F7A8B9C0D1E3 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F07587522BC421B90D4F6643 /* Project object */;
 }
