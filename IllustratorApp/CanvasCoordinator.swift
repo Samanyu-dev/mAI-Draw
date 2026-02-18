@@ -5,6 +5,9 @@ import AVFoundation
 // MARK: - Non-Zoomable UITextView (bloqueia zoom do trackpad)
 
 class NonZoomableTextView: UITextView {
+    /// Janela de proteção contra PencilKit roubar first responder
+    var resignBlockedUntil: Date = .distantPast
+
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
         setupNoZoom()
@@ -26,6 +29,13 @@ class NonZoomableTextView: UITextView {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer is UIPinchGestureRecognizer { return false }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    // Bloquear resignFirstResponder do PencilKit (timer interno ~1s)
+    @discardableResult
+    override func resignFirstResponder() -> Bool {
+        if Date() < resignBlockedUntil { return false }
+        return super.resignFirstResponder()
     }
 }
 
@@ -51,8 +61,12 @@ class DrawingCanvas: PKCanvasView {
                 if hit is UIButton { return hit }
                 // Connection points (bolinhas para setas)
                 if coordinator?.connectionPoints.contains(sibling) == true { return hit }
-                // TextViews que estão sendo editados
+                // TextViews que estão sendo editados — capturar input direto
                 if let tv = hit as? UITextView, tv.isFirstResponder { return tv }
+                // Post-its (container com texto dentro) — rotear para gesture do elemento
+                if !(sibling is UITextView), sibling.subviews.contains(where: { $0 is UITextView }) {
+                    return sibling
+                }
             }
         }
 
@@ -182,6 +196,10 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private var connectionSourceView: UIView?   // elemento de onde está arrastando
     private var connectionPreviewLayer: CAShapeLayer? // preview da seta enquanto arrasta
 
+    // Mind map — botões direcionais (+ nas 4 direções)
+    private var directionalButtons: [UIButton] = []
+    private var directionalSourceView: UIView?
+
     // Keys para objc_setAssociatedObject
     private static var audioURLKey: UInt8 = 0
     private static var audioIDKey: UInt8 = 0
@@ -254,8 +272,14 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         self.toolPicker = toolPicker
 
         // Finger gestures no canvas — dedo interage com elementos abaixo
+        let fingerDoubleTap = UITapGestureRecognizer(target: self, action: #selector(handleFingerDoubleTap(_:)))
+        fingerDoubleTap.numberOfTapsRequired = 2
+        fingerDoubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        canvas.addGestureRecognizer(fingerDoubleTap)
+
         let fingerTap = UITapGestureRecognizer(target: self, action: #selector(handleFingerTap(_:)))
         fingerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fingerTap.require(toFail: fingerDoubleTap)
         canvas.addGestureRecognizer(fingerTap)
 
         let fingerPan = UIPanGestureRecognizer(target: self, action: #selector(handleFingerPan(_:)))
@@ -818,10 +842,15 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // MARK: - Shared Gestures
 
     private func addDragGestures(to view: UIView) {
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleElementDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        view.addGestureRecognizer(doubleTap)
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleElementTap(_:)))
         tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        tap.require(toFail: doubleTap)
         view.addGestureRecognizer(tap)
-
     }
 
     // MARK: - Highlight Scribble
@@ -1036,9 +1065,18 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     @objc private func handleElementTap(_ gesture: UITapGestureRecognizer) {
         guard let view = gesture.view else { return }
         bringElementToFront(view)
-        activateTextEditing(in: view)
         showDeleteButton(for: view)
         showConnectionPoints(for: view)
+        showDirectionalButtons(for: view)
+    }
+
+    @objc private func handleElementDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard let view = gesture.view else { return }
+        guard isTextElement(view) else { return }
+        bringElementToFront(view)
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        activateTextEditing(in: view)
     }
 
     private func bringElementToFront(_ view: UIView) {
@@ -1048,13 +1086,15 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     private func activateTextEditing(in view: UIView) {
         // Se a view é um UITextView (texto avulso)
-        if let tv = view as? UITextView {
+        if let tv = view as? NonZoomableTextView {
+            tv.resignBlockedUntil = Date().addingTimeInterval(1.5)
             tv.becomeFirstResponder()
             return
         }
         // Se a view contém um UITextView (post-it)
         for sub in view.subviews {
-            if let tv = sub as? UITextView {
+            if let tv = sub as? NonZoomableTextView {
+                tv.resignBlockedUntil = Date().addingTimeInterval(1.5)
                 tv.becomeFirstResponder()
                 return
             }
@@ -1155,6 +1195,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         // Animação de saída
         hideDeleteButton()
         hideConnectionPoints()
+        hideDirectionalButtons()
         UIView.animate(withDuration: 0.25, animations: {
             view.alpha = 0
             view.transform = view.transform.scaledBy(x: 0.3, y: 0.3)
@@ -1236,6 +1277,130 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         connectionPreviewLayer = nil
     }
 
+    // MARK: - Directional Mind Map Buttons
+
+    private func isTextElement(_ view: UIView) -> Bool {
+        if view is UITextView { return true }
+        return view.subviews.contains(where: { $0 is UITextView })
+    }
+
+    private func showDirectionalButtons(for view: UIView) {
+        hideDirectionalButtons()
+        guard isTextElement(view), let container = containerView else { return }
+
+        directionalSourceView = view
+        let frame = view.frame
+        let btnSize: CGFloat = 32
+        let gap: CGFloat = 16
+
+        // Posições: cima, baixo, esquerda, direita
+        let configs: [(pos: CGPoint, symbol: String, tag: Int)] = [
+            (CGPoint(x: frame.midX, y: frame.minY - gap - btnSize / 2), "plus", 0),  // top
+            (CGPoint(x: frame.midX, y: frame.maxY + gap + btnSize / 2), "plus", 1),  // bottom
+            (CGPoint(x: frame.minX - gap - btnSize / 2, y: frame.midY), "plus", 2),  // left
+            (CGPoint(x: frame.maxX + gap + btnSize / 2, y: frame.midY), "plus", 3),  // right
+        ]
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
+
+        for cfg in configs {
+            let btn = UIButton(type: .system)
+            btn.setImage(UIImage(systemName: cfg.symbol, withConfiguration: iconConfig), for: .normal)
+            btn.tintColor = .white
+            btn.backgroundColor = UIColor.systemGreen
+            btn.layer.cornerRadius = btnSize / 2
+            btn.layer.shadowColor = UIColor.black.cgColor
+            btn.layer.shadowOpacity = 0.25
+            btn.layer.shadowRadius = 3
+            btn.layer.shadowOffset = CGSize(width: 0, height: 1)
+            btn.frame = CGRect(x: cfg.pos.x - btnSize / 2, y: cfg.pos.y - btnSize / 2,
+                               width: btnSize, height: btnSize)
+            btn.tag = cfg.tag
+            btn.addTarget(self, action: #selector(directionalButtonTapped(_:)), for: .touchUpInside)
+
+            container.addSubview(btn)
+            directionalButtons.append(btn)
+
+            // Animação de entrada
+            btn.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+            btn.alpha = 0
+        }
+
+        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) { [weak self] in
+            for btn in self?.directionalButtons ?? [] {
+                btn.transform = .identity
+                btn.alpha = 1
+            }
+        }
+    }
+
+    private func hideDirectionalButtons() {
+        for btn in directionalButtons {
+            btn.removeFromSuperview()
+        }
+        directionalButtons.removeAll()
+        directionalSourceView = nil
+    }
+
+    @objc private func directionalButtonTapped(_ sender: UIButton) {
+        guard let sourceView = directionalSourceView, let container = containerView else { return }
+
+        let sourceFrame = sourceView.frame
+        let spacing: CGFloat = 200
+
+        // Calcular posição do novo texto baseado na direção
+        let newCenter: CGPoint
+        switch sender.tag {
+        case 0: // top
+            newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.minY - spacing)
+        case 1: // bottom
+            newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.maxY + spacing)
+        case 2: // left
+            newCenter = CGPoint(x: sourceFrame.minX - spacing, y: sourceFrame.midY)
+        case 3: // right
+            newCenter = CGPoint(x: sourceFrame.maxX + spacing, y: sourceFrame.midY)
+        default:
+            return
+        }
+
+        // Esconder UI do elemento atual
+        hideDeleteButton()
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        resignAllTextViews()
+
+        // Criar novo texto na posição
+        let textView = NonZoomableTextView()
+        textView.text = "Toque para digitar"
+        textView.font = handwritingFont
+        textView.textColor = currentTextColor.withAlphaComponent(0.35)
+        textView.backgroundColor = .clear
+        textView.isScrollEnabled = false
+        textView.textAlignment = .center
+        textView.frame = CGRect(x: newCenter.x - 120, y: newCenter.y - 30, width: 240, height: 60)
+        textView.layer.cornerRadius = 4
+        textView.isUserInteractionEnabled = true
+        textView.tintColor = currentTextColor
+        textView.dataDetectorTypes = []
+        textView.linkTextAttributes = [:]
+        textView.tag = 999
+        textView.delegate = self
+
+        addDragGestures(to: textView)
+        addElementToCanvas(textView)
+
+        let item = CanvasTextItem(text: "", position: newCenter)
+        allElementViews[item.id] = textView
+
+        // Criar conexão (seta) do elemento original para o novo
+        createConnection(from: sourceView, to: textView)
+
+        // Ativar edição no novo texto
+        DispatchQueue.main.async {
+            textView.becomeFirstResponder()
+        }
+    }
+
     @objc private func handleConnectionDrag(_ gesture: UIPanGestureRecognizer) {
         guard let container = containerView, let sourceView = connectionSourceView else { return }
 
@@ -1277,11 +1442,13 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             }
 
             hideConnectionPoints()
+            hideDirectionalButtons()
 
         case .cancelled, .failed:
             connectionPreviewLayer?.removeFromSuperlayer()
             connectionPreviewLayer = nil
             hideConnectionPoints()
+            hideDirectionalButtons()
 
         default: break
         }
@@ -1450,8 +1617,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         guard let container = containerView, let canvas = canvasView else { return nil }
         for sibling in container.subviews.reversed() {
             if sibling === canvas || sibling === lassoOverlay || sibling === selectionBox { continue }
-            if sibling === activeDeleteButton { continue }
+            if sibling === activeDeleteButton || sibling === activeHighlightButton { continue }
             if connectionPoints.contains(sibling) { continue }
+            if directionalButtons.contains(where: { $0 === sibling }) { continue }
             if sibling.frame.contains(pointInContainer) {
                 return sibling
             }
@@ -1475,9 +1643,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         if let element = findElement(at: point) {
             bringElementToFront(element)
-            activateTextEditing(in: element)
             showDeleteButton(for: element)
             showConnectionPoints(for: element)
+            showDirectionalButtons(for: element)
         } else {
             // Checar se tocou numa seta
             if handleTapOnConnection(at: point) { return }
@@ -1485,8 +1653,21 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             if !selectedViews.isEmpty { clearSelection() }
             hideDeleteButton()
             hideConnectionPoints()
+            hideDirectionalButtons()
             // Resign text editing
             resignAllTextViews()
+        }
+    }
+
+    @objc private func handleFingerDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard let container = containerView else { return }
+        let point = gesture.location(in: container)
+
+        if let element = findElement(at: point), isTextElement(element) {
+            bringElementToFront(element)
+            hideConnectionPoints()
+            hideDirectionalButtons()
+            activateTextEditing(in: element)
         }
     }
 
@@ -1497,6 +1678,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         case .began:
             hideDeleteButton()
             hideConnectionPoints()
+            hideDirectionalButtons()
             let point = gesture.location(in: container)
             activeDragElement = findElement(at: point)
             if let el = activeDragElement {
@@ -1570,9 +1752,15 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private func resignAllTextViews() {
         guard let container = containerView else { return }
         for view in container.subviews where view !== canvasView {
-            if let tv = view as? UITextView { tv.resignFirstResponder() }
+            if let tv = view as? NonZoomableTextView {
+                tv.resignBlockedUntil = .distantPast
+                tv.resignFirstResponder()
+            }
             for sub in view.subviews {
-                if let tv = sub as? UITextView { tv.resignFirstResponder() }
+                if let tv = sub as? NonZoomableTextView {
+                    tv.resignBlockedUntil = .distantPast
+                    tv.resignFirstResponder()
+                }
             }
         }
     }
@@ -2244,31 +2432,39 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         guard let canvasView = canvasView else { return }
 
         let drawing = canvasView.drawing
-        var bounds = drawing.bounds
+        var contentBounds = drawing.bounds
 
         for (_, view) in imageViews {
-            bounds = bounds.union(view.frame)
+            contentBounds = contentBounds.union(view.frame)
         }
 
-        if bounds.isEmpty {
+        // Posição: centro do conteúdo existente, ou centro da tela visível
+        let center: CGPoint
+        if contentBounds.isEmpty {
             guard let scroll = scrollView else { return }
-            let visibleRect = CGRect(origin: scroll.contentOffset, size: scroll.bounds.size)
             let zoomScale = scroll.zoomScale
-            bounds = CGRect(
-                x: visibleRect.origin.x / zoomScale + 100,
-                y: visibleRect.origin.y / zoomScale + 100,
-                width: visibleRect.width / zoomScale - 200,
-                height: visibleRect.height / zoomScale - 200
+            center = CGPoint(
+                x: scroll.contentOffset.x / zoomScale + scroll.bounds.width / zoomScale / 2,
+                y: scroll.contentOffset.y / zoomScale + scroll.bounds.height / zoomScale / 2
             )
+        } else {
+            // Posicionar à direita do conteúdo existente
+            center = CGPoint(x: contentBounds.maxX + 40, y: contentBounds.midY)
         }
 
-        let padded = bounds.insetBy(dx: -20, dy: -20)
-        let item = CanvasImageItem(image: resultImage, position: CGPoint(x: padded.midX, y: padded.midY))
+        // Tamanho: proporcional à imagem real, limitado a 600pt
+        let imgSize = resultImage.size
+        let maxSide: CGFloat = 600
+        let scale = min(maxSide / imgSize.width, maxSide / imgSize.height, 1.0)
+        let w = imgSize.width * scale
+        let h = imgSize.height * scale
+
+        let item = CanvasImageItem(image: resultImage, position: center)
 
         let imageView = UIImageView(image: resultImage)
         imageView.isUserInteractionEnabled = true
         imageView.contentMode = .scaleAspectFit
-        imageView.frame = padded
+        imageView.frame = CGRect(x: center.x, y: center.y - h / 2, width: w, height: h)
         imageView.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.3).cgColor
         imageView.layer.borderWidth = 1.5
         imageView.layer.cornerRadius = 4
@@ -2491,8 +2687,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         for sibling in container.subviews {
             if sibling === canvas || sibling === lassoOverlay || sibling === selectionBox { continue }
-            if sibling === activeDeleteButton { continue }
+            if sibling === activeDeleteButton || sibling === activeHighlightButton { continue }
             if connectionPoints.contains(sibling) { continue }
+            if directionalButtons.contains(where: { $0 === sibling }) { continue }
             if sibling.alpha <= 0 || sibling.isHidden { continue }
 
             let hl = highlightColorName(for: sibling)
@@ -2540,9 +2737,10 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         var viewIndex = 0
         for sibling in container.subviews {
             if sibling === canvas || sibling === lassoOverlay || sibling === selectionBox { continue }
-            if sibling === activeDeleteButton { continue }
+            if sibling === activeDeleteButton || sibling === activeHighlightButton { continue }
             if sibling.alpha <= 0 || sibling.isHidden { continue }
             if connectionPoints.contains(where: { $0 === sibling }) { continue }
+            if directionalButtons.contains(where: { $0 === sibling }) { continue }
             viewToIndex[ObjectIdentifier(sibling)] = viewIndex
             viewIndex += 1
         }
@@ -2630,6 +2828,13 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                     textView.text = text
                     textView.textColor = currentTextColor
                     textView.tag = 0
+                    // Auto-resize para caber o texto
+                    let newSize = textView.sizeThatFits(CGSize(width: textView.frame.width, height: .greatestFiniteMagnitude))
+                    if newSize.height > textView.frame.height {
+                        var f = textView.frame
+                        f.size.height = newSize.height + 8
+                        textView.frame = f
+                    }
                 } else {
                     textView.text = "Toque para digitar"
                     textView.textColor = currentTextColor.withAlphaComponent(0.35)
@@ -2677,6 +2882,16 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                     textView.text = text
                     textView.textColor = postItTextColor
                     textView.tag = 0
+                    // Auto-resize post-it para caber o texto
+                    let padding: CGFloat = 12
+                    let newSize = textView.sizeThatFits(CGSize(width: textView.frame.width, height: .greatestFiniteMagnitude))
+                    let neededHeight = newSize.height + padding * 2
+                    if neededHeight > postIt.frame.height {
+                        var f = postIt.frame
+                        f.size.height = neededHeight
+                        postIt.frame = f
+                        textView.frame = postIt.bounds.insetBy(dx: padding, dy: padding)
+                    }
                 } else {
                     textView.text = "Toque para digitar"
                     textView.textColor = postItTextColor.withAlphaComponent(0.35)
@@ -2792,6 +3007,35 @@ extension CanvasCoordinator: UITextViewDelegate {
             let color = isInsidePostIt(textView) ? postItTextColor : currentTextColor
             textView.textColor = color
             textView.tag = 0
+        }
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        let fixedWidth = textView.frame.width
+        let newSize = textView.sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
+        let newHeight = max(newSize.height, 40)
+
+        if isInsidePostIt(textView) {
+            // Post-it: expandir o post-it pai
+            guard let postIt = textView.superview else { return }
+            let padding: CGFloat = 12
+            let minHeight: CGFloat = 200
+            let neededHeight = max(newHeight + padding * 2, minHeight)
+            if abs(postIt.frame.height - neededHeight) > 2 {
+                var frame = postIt.frame
+                frame.size.height = neededHeight
+                postIt.frame = frame
+                textView.frame = postIt.bounds.insetBy(dx: padding, dy: padding)
+            }
+        } else {
+            // Texto avulso: expandir a textView
+            let minHeight: CGFloat = 40
+            let targetHeight = max(newHeight + 8, minHeight)
+            if abs(textView.frame.height - targetHeight) > 2 {
+                var frame = textView.frame
+                frame.size.height = targetHeight
+                textView.frame = frame
+            }
         }
     }
 
