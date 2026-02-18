@@ -99,6 +99,19 @@ struct ContentView: View {
             Button("") { coordinator?.saveProject() }
                 .keyboardShortcut("s", modifiers: .command)
                 .hidden()
+            // Cmd+Setas → Mind map (criar texto conectado)
+            Button("") { coordinator?.createConnectedTextFromSelected(direction: 0) }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+                .hidden()
+            Button("") { coordinator?.createConnectedTextFromSelected(direction: 1) }
+                .keyboardShortcut(.downArrow, modifiers: .command)
+                .hidden()
+            Button("") { coordinator?.createConnectedTextFromSelected(direction: 2) }
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                .hidden()
+            Button("") { coordinator?.createConnectedTextFromSelected(direction: 3) }
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                .hidden()
         }
     }
 

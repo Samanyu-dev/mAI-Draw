@@ -7,6 +7,10 @@ import AVFoundation
 class NonZoomableTextView: UITextView {
     /// Janela de proteção contra PencilKit roubar first responder
     var resignBlockedUntil: Date = .distantPast
+    /// Referência ao coordinator para notificar Enter
+    weak var canvasCoordinator: CanvasCoordinator?
+    /// Rastreia se Shift está segurado
+    var isShiftHeld = false
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
@@ -36,6 +40,41 @@ class NonZoomableTextView: UITextView {
     override func resignFirstResponder() -> Bool {
         if Date() < resignBlockedUntil { return false }
         return super.resignFirstResponder()
+    }
+
+    // Enter = finalizar edição, Shift+Enter = quebra de linha
+    override func insertText(_ text: String) {
+        if text == "\n" {
+            // Shift+Enter → quebra de linha (isShiftHeld rastreado via pressesBegan)
+            if isShiftHeld {
+                super.insertText(text)
+                return
+            }
+            // Enter simples → finalizar edição e mostrar seleção
+            resignBlockedUntil = .distantPast
+            resignFirstResponder()
+            canvasCoordinator?.showSelectionUI(for: self)
+            return
+        }
+        super.insertText(text)
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        for press in presses {
+            if press.key?.keyCode == .keyboardLeftShift || press.key?.keyCode == .keyboardRightShift {
+                isShiftHeld = true
+            }
+        }
+        super.pressesBegan(presses, with: event)
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        for press in presses {
+            if press.key?.keyCode == .keyboardLeftShift || press.key?.keyCode == .keyboardRightShift {
+                isShiftHeld = false
+            }
+        }
+        super.pressesEnded(presses, with: event)
     }
 }
 
@@ -72,6 +111,31 @@ class DrawingCanvas: PKCanvasView {
 
         // Tudo mais → canvas recebe (pencil desenha, dedo handled por gestures no canvas)
         return super.hitTest(point, with: event)
+    }
+
+    // Navegação por setas quando elemento está selecionado
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        for press in presses {
+            guard let key = press.key else { continue }
+            // Só setas sem modifier → navegação entre elementos
+            if key.modifierFlags.isEmpty {
+                switch key.keyCode {
+                case .keyboardUpArrow:
+                    if coordinator?.navigateToElement(direction: 0) == true { return }
+                case .keyboardDownArrow:
+                    if coordinator?.navigateToElement(direction: 1) == true { return }
+                case .keyboardLeftArrow:
+                    if coordinator?.navigateToElement(direction: 2) == true { return }
+                case .keyboardRightArrow:
+                    if coordinator?.navigateToElement(direction: 3) == true { return }
+                case .keyboardReturnOrEnter:
+                    if coordinator?.enterSelectedElement() == true { return }
+                default:
+                    break
+                }
+            }
+        }
+        super.pressesBegan(presses, with: event)
     }
 }
 
@@ -274,22 +338,22 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         // Finger gestures no canvas — dedo interage com elementos abaixo
         let fingerDoubleTap = UITapGestureRecognizer(target: self, action: #selector(handleFingerDoubleTap(_:)))
         fingerDoubleTap.numberOfTapsRequired = 2
-        fingerDoubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fingerDoubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         canvas.addGestureRecognizer(fingerDoubleTap)
 
         let fingerTap = UITapGestureRecognizer(target: self, action: #selector(handleFingerTap(_:)))
-        fingerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fingerTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         fingerTap.require(toFail: fingerDoubleTap)
         canvas.addGestureRecognizer(fingerTap)
 
         let fingerPan = UIPanGestureRecognizer(target: self, action: #selector(handleFingerPan(_:)))
-        fingerPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fingerPan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         fingerPan.maximumNumberOfTouches = 1
         canvas.addGestureRecognizer(fingerPan)
 
         // Long press + drag = laço automático
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressLasso(_:)))
-        longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         longPress.minimumPressDuration = 0.4
         canvas.addGestureRecognizer(longPress)
 
@@ -844,11 +908,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private func addDragGestures(to view: UIView) {
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleElementDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
-        doubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        doubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         view.addGestureRecognizer(doubleTap)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleElementTap(_:)))
-        tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         tap.require(toFail: doubleTap)
         view.addGestureRecognizer(tap)
     }
@@ -1070,6 +1134,55 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         showDirectionalButtons(for: view)
     }
 
+    /// Navega para o elemento mais próximo na direção (0=up, 1=down, 2=left, 3=right)
+    /// Retorna true se navegou, false se não havia elemento selecionado ou destino
+    func navigateToElement(direction: Int) -> Bool {
+        guard let current = deleteTargetView else { return false }
+        let currentCenter = CGPoint(x: current.frame.midX, y: current.frame.midY)
+
+        var bestView: UIView?
+        var bestDistance: CGFloat = .greatestFiniteMagnitude
+
+        for (_, view) in allElementViews {
+            if view === current { continue }
+            if view.superview == nil { continue }
+            let center = CGPoint(x: view.frame.midX, y: view.frame.midY)
+            let dx = center.x - currentCenter.x
+            let dy = center.y - currentCenter.y
+
+            // Filtrar pela direção
+            let isInDirection: Bool
+            switch direction {
+            case 0: isInDirection = dy < -20  // up
+            case 1: isInDirection = dy > 20   // down
+            case 2: isInDirection = dx < -20  // left
+            case 3: isInDirection = dx > 20   // right
+            default: isInDirection = false
+            }
+            guard isInDirection else { continue }
+
+            let distance = sqrt(dx * dx + dy * dy)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestView = view
+            }
+        }
+
+        guard let target = bestView else { return false }
+        showSelectionUI(for: target)
+        return true
+    }
+
+    /// Enter no elemento selecionado = ativar edição de texto
+    /// Retorna true se ativou, false se não havia elemento selecionado
+    func enterSelectedElement() -> Bool {
+        guard let target = deleteTargetView, isTextElement(target) else { return false }
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        activateTextEditing(in: target)
+        return true
+    }
+
     @objc private func handleElementDoubleTap(_ gesture: UITapGestureRecognizer) {
         guard let view = gesture.view else { return }
         guard isTextElement(view) else { return }
@@ -1082,6 +1195,23 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private func bringElementToFront(_ view: UIView) {
         guard let container = containerView, let canvas = canvasView else { return }
         container.insertSubview(view, belowSubview: canvas)
+    }
+
+    /// Mostra UI de seleção (delete, conexões, direcionais) — chamado pelo Enter no teclado
+    func showSelectionUI(for view: UIView) {
+        // Se é um text view dentro de post-it, usar o post-it como elemento
+        let element: UIView
+        if let parent = view.superview, parent !== containerView, !(parent is UIScrollView) {
+            element = parent
+        } else {
+            element = view
+        }
+        bringElementToFront(element)
+        showDeleteButton(for: element)
+        showConnectionPoints(for: element)
+        showDirectionalButtons(for: element)
+        // Canvas vira first responder para capturar setas do teclado
+        canvasView?.becomeFirstResponder()
     }
 
     private func activateTextEditing(in view: UIView) {
@@ -1343,34 +1473,33 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     }
 
     @objc private func directionalButtonTapped(_ sender: UIButton) {
-        guard let sourceView = directionalSourceView, let container = containerView else { return }
+        guard let sourceView = directionalSourceView else { return }
+        createConnectedText(from: sourceView, direction: sender.tag)
+    }
+
+    /// Cria texto conectado numa direção (0=cima, 1=baixo, 2=esquerda, 3=direita)
+    private func createConnectedText(from sourceView: UIView, direction: Int) {
+        guard containerView != nil else { return }
 
         let sourceFrame = sourceView.frame
         let spacing: CGFloat = 200
 
-        // Calcular posição do novo texto baseado na direção
         let newCenter: CGPoint
-        switch sender.tag {
-        case 0: // top
-            newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.minY - spacing)
-        case 1: // bottom
-            newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.maxY + spacing)
-        case 2: // left
-            newCenter = CGPoint(x: sourceFrame.minX - spacing, y: sourceFrame.midY)
-        case 3: // right
-            newCenter = CGPoint(x: sourceFrame.maxX + spacing, y: sourceFrame.midY)
-        default:
-            return
+        switch direction {
+        case 0: newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.minY - spacing)
+        case 1: newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.maxY + spacing)
+        case 2: newCenter = CGPoint(x: sourceFrame.minX - spacing, y: sourceFrame.midY)
+        case 3: newCenter = CGPoint(x: sourceFrame.maxX + spacing, y: sourceFrame.midY)
+        default: return
         }
 
-        // Esconder UI do elemento atual
         hideDeleteButton()
         hideConnectionPoints()
         hideDirectionalButtons()
         resignAllTextViews()
 
-        // Criar novo texto na posição
         let textView = NonZoomableTextView()
+        textView.canvasCoordinator = self
         textView.text = "Toque para digitar"
         textView.font = handwritingFont
         textView.textColor = currentTextColor.withAlphaComponent(0.35)
@@ -1392,13 +1521,18 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         let item = CanvasTextItem(text: "", position: newCenter)
         allElementViews[item.id] = textView
 
-        // Criar conexão (seta) do elemento original para o novo
         createConnection(from: sourceView, to: textView)
 
-        // Ativar edição no novo texto
+        textView.resignBlockedUntil = Date().addingTimeInterval(1.5)
         DispatchQueue.main.async {
             textView.becomeFirstResponder()
         }
+    }
+
+    /// Atalho de teclado: cria texto conectado na direção (chamado pelo ContentView)
+    func createConnectedTextFromSelected(direction: Int) {
+        guard let target = deleteTargetView, isTextElement(target) else { return }
+        createConnectedText(from: target, direction: direction)
     }
 
     @objc private func handleConnectionDrag(_ gesture: UIPanGestureRecognizer) {
@@ -1835,6 +1969,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         let pos = position ?? visibleCenter()
 
         let textView = NonZoomableTextView()
+        textView.canvasCoordinator = self
 
         textView.text = ""
         textView.font = handwritingFont
@@ -1916,6 +2051,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         // Texto do resumo
         let textView = NonZoomableTextView()
+        textView.canvasCoordinator = self
 
         textView.text = text
         textView.font = .systemFont(ofSize: 14)
@@ -1966,6 +2102,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         // Texto dentro do post-it
         let textView = NonZoomableTextView()
+        textView.canvasCoordinator = self
 
         textView.text = ""
         textView.font = handwritingFont
@@ -2225,6 +2362,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         postIt.isUserInteractionEnabled = true
 
         let textView = NonZoomableTextView()
+        textView.canvasCoordinator = self
 
         textView.text = text
         textView.font = UIFont(name: "MarkerFelt-Wide", size: fontSize) ?? .systemFont(ofSize: fontSize, weight: .medium)
@@ -2810,7 +2948,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             switch element.type {
             case .text:
                 let textView = NonZoomableTextView()
-        
+                textView.canvasCoordinator = self
+
                 textView.font = handwritingFont
                 textView.textColor = currentTextColor
                 textView.backgroundColor = .clear
@@ -2865,7 +3004,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 }
 
                 let textView = NonZoomableTextView()
-        
+                textView.canvasCoordinator = self
+
                 textView.font = handwritingFont
                 textView.textColor = postItTextColor
                 textView.backgroundColor = .clear
