@@ -17,6 +17,8 @@ struct SyncService {
     struct ConnectionJSON: Codable {
         let fromIndex: Int
         let toIndex: Int
+        let fromId: String?
+        let toId: String?
     }
 
     static func listProjects() async -> [ProjectItem] {
@@ -77,6 +79,7 @@ struct SyncService {
 
             let elements = rows.map { row in
                 CanvasElement(
+                    id: row.metadata?["elementId"],
                     type: CanvasElementType(rawValue: row.type) ?? .text,
                     text: row.content,
                     x: row.position_x,
@@ -88,12 +91,21 @@ struct SyncService {
                     file: row.metadata?["file"],
                     duration: row.metadata?["duration"].flatMap { Double($0) },
                     scale: row.metadata?["scale"].flatMap { CGFloat(Double($0) ?? 1) },
-                    highlightColor: row.metadata?["highlightColor"]
+                    highlightColor: row.metadata?["highlightColor"],
+                    completionColor: row.metadata?["completionColor"],
+                    completionStyle: row.metadata?["completionStyle"]
                 )
             }
 
             let formatter = ISO8601DateFormatter()
-            let connections = remote.connections?.map { CanvasConnectionData(fromIndex: $0.fromIndex, toIndex: $0.toIndex) }
+            let connections = remote.connections?.map {
+                CanvasConnectionData(
+                    fromIndex: $0.fromIndex,
+                    toIndex: $0.toIndex,
+                    fromId: $0.fromId,
+                    toId: $0.toId
+                )
+            }
             let doc = CanvasDocument(
                 id: remote.id,
                 title: remote.title,
@@ -103,6 +115,14 @@ struct SyncService {
                 elements: elements,
                 connections: connections
             )
+
+            // A local edit may have been saved right before the app was closed while
+            // the background cloud upload was still pending. Do not let older cloud
+            // data overwrite the newer local position/state on next launch.
+            if let localDoc = StorageService.loadDocument(id: id),
+               localDoc.updatedAt > doc.updatedAt {
+                return localDoc
+            }
 
             // 3. Save to local cache
             StorageService.saveDocumentJSON(doc)
@@ -179,7 +199,14 @@ struct SyncService {
         let formatter = ISO8601DateFormatter()
 
         // 1. Upsert project
-        let connJSON = doc.connections?.map { ConnectionJSON(fromIndex: $0.fromIndex, toIndex: $0.toIndex) }
+        let connJSON = doc.connections?.map {
+            ConnectionJSON(
+                fromIndex: $0.fromIndex,
+                toIndex: $0.toIndex,
+                fromId: $0.fromId,
+                toId: $0.toId
+            )
+        }
         let projectRow = ProjectRow(
             id: doc.id,
             user_id: userId,
@@ -210,12 +237,15 @@ struct SyncService {
 
         for element in doc.elements {
             var meta: [String: String] = [:]
+            if let elementId = element.id { meta["elementId"] = elementId }
             if let color = element.color { meta["color"] = color.rawValue }
             if let file = element.file { meta["file"] = file }
             if let rotation = element.rotation { meta["rotation"] = "\(rotation)" }
             if let scale = element.scale { meta["scale"] = "\(scale)" }
             if let duration = element.duration { meta["duration"] = "\(duration)" }
             if let hl = element.highlightColor { meta["highlightColor"] = hl }
+            if let completion = element.completionColor { meta["completionColor"] = completion }
+            if let completionStyle = element.completionStyle { meta["completionStyle"] = completionStyle }
 
             let row = ElementRow(
                 project_id: doc.id,

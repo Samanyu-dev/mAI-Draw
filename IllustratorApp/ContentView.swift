@@ -5,6 +5,7 @@ struct ContentView: View {
     let projectId: String
     var onClose: () -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var state = CanvasState()
     @State private var coordinator: CanvasCoordinator?
     @State private var selectedPhoto: PhotosPickerItem?
@@ -40,6 +41,9 @@ struct ContentView: View {
             Button("") { coordinator?.toggleHighlightOnSelected() }
                 .keyboardShortcut("l", modifiers: .command)
                 .hidden()
+            Button("") { coordinator?.toggleCompletionOnSelected() }
+                .keyboardShortcut("k", modifiers: .command)
+                .hidden()
         }
         .preferredColorScheme(state.isDarkMode ? .dark : .light)
         .onAppear {
@@ -50,6 +54,15 @@ struct ContentView: View {
                 coord.loadProject()
                 coord.startAutoSave()
                 coord.applyColorScheme(dark: state.isDarkMode)
+            }
+        }
+        .onDisappear {
+            coordinator?.saveProject()
+            coordinator?.stopAutoSave()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .inactive || phase == .background {
+                coordinator?.saveProject()
             }
         }
         .onChange(of: selectedPhoto) { _, newValue in
@@ -535,7 +548,7 @@ struct ContentView: View {
             if let data = try? await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data),
                let coord = coordinator {
-                let center = CGPoint(x: 2048, y: 2048)
+                let center = coord.currentVisibleCenter()
                 let canvasItem = CanvasImageItem(image: image, position: center)
                 state.images.append(canvasItem)
                 coord.addImage(canvasItem)

@@ -2,6 +2,15 @@ import UIKit
 import PencilKit
 import AVFoundation
 
+private func shouldSuppressFloatingEditAction(_ action: Selector) -> Bool {
+    let name = NSStringFromSelector(action)
+    return name == "selectAll:" || name == "insertSpace:" || name == "_insertSpace:"
+}
+
+private func dismissFloatingEditMenu() {
+    UIMenuController.shared.hideMenu()
+}
+
 // MARK: - Non-Zoomable UITextView (bloqueia zoom do trackpad)
 
 class NonZoomableTextView: UITextView {
@@ -33,6 +42,11 @@ class NonZoomableTextView: UITextView {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer is UIPinchGestureRecognizer { return false }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if shouldSuppressFloatingEditAction(action) { return false }
+        return super.canPerformAction(action, withSender: sender)
     }
 
     // Bloquear resignFirstResponder do PencilKit (timer interno ~1s)
@@ -82,6 +96,11 @@ class NonZoomableTextView: UITextView {
 
 class DrawingCanvas: PKCanvasView {
     weak var coordinator: CanvasCoordinator?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if shouldSuppressFloatingEditAction(action) { return false }
+        return super.canPerformAction(action, withSender: sender)
+    }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let container = superview else { return super.hitTest(point, with: event) }
@@ -267,8 +286,13 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // Keys para objc_setAssociatedObject
     private static var audioURLKey: UInt8 = 0
     private static var audioIDKey: UInt8 = 0
+    private static var elementIDKey: UInt8 = 0
+    private static let connectionLayerName = "CanvasConnectionLayer"
 
-    private let canvasSize = CGSize(width: 4096, height: 4096)
+    private let canvasSize = CGSize(width: 16384, height: 16384)
+    private var canvasCenter: CGPoint {
+        CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+    }
     private let handwritingFont = UIFont(name: "Noteworthy-Bold", size: 24) ?? UIFont.systemFont(ofSize: 24)
 
     private var currentTextColor: UIColor { state.isDarkMode ? .white : .black }
@@ -287,7 +311,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     func buildCanvas(in frame: CGRect) -> UIView {
         let scroll = UIScrollView(frame: frame)
         scroll.delegate = self
-        scroll.minimumZoomScale = 0.1
+        scroll.minimumZoomScale = 0.025
         scroll.maximumZoomScale = 5.0
         scroll.bouncesZoom = false
         scroll.bounces = false
@@ -379,16 +403,14 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         redo.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(redo)
 
-        let offsetX = max(0, (canvasSize.width - frame.width) / 2)
-        let offsetY = max(0, (canvasSize.height - frame.height) / 2)
-        scroll.contentOffset = CGPoint(x: offsetX, y: offsetY)
+        centerViewport(on: canvasCenter, animated: false)
 
         return scroll
     }
 
     /// Posição central visível no canvas
     private func visibleCenter() -> CGPoint {
-        guard let scroll = scrollView else { return CGPoint(x: 2048, y: 2048) }
+        guard let scroll = scrollView else { return canvasCenter }
         let zoomScale = scroll.zoomScale
         return CGPoint(
             x: (scroll.contentOffset.x + scroll.bounds.width / 2) / zoomScale,
@@ -396,10 +418,74 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         )
     }
 
+    func currentVisibleCenter() -> CGPoint {
+        visibleCenter()
+    }
+
+    private func centerViewport(on point: CGPoint, animated: Bool) {
+        guard let scroll = scrollView else { return }
+        let zoomScale = scroll.zoomScale
+        let maxOffsetX = max(0, canvasSize.width * zoomScale - scroll.bounds.width)
+        let maxOffsetY = max(0, canvasSize.height * zoomScale - scroll.bounds.height)
+        let target = CGPoint(
+            x: min(max(0, point.x * zoomScale - scroll.bounds.width / 2), maxOffsetX),
+            y: min(max(0, point.y * zoomScale - scroll.bounds.height / 2), maxOffsetY)
+        )
+        scroll.setContentOffset(target, animated: animated)
+    }
+
+    private func centerViewportOnLoadedContent(from doc: CanvasDocument) {
+        var bounds = CGRect.null
+
+        for element in doc.elements {
+            let frame = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
+            bounds = bounds.union(frame)
+        }
+
+        if let drawingBounds = canvasView?.drawing.bounds,
+           !drawingBounds.isNull,
+           !drawingBounds.isEmpty {
+            bounds = bounds.union(drawingBounds)
+        }
+
+        guard !bounds.isNull, !bounds.isEmpty else { return }
+        centerViewport(on: CGPoint(x: bounds.midX, y: bounds.midY), animated: false)
+    }
+
     /// Adiciona elemento abaixo do canvas (canvas fica no topo visual)
     private func addElementToCanvas(_ view: UIView) {
         guard let container = containerView, let canvas = canvasView else { return }
+        ensureElementID(for: view)
         container.insertSubview(view, belowSubview: canvas)
+    }
+
+    @discardableResult
+    private func ensureElementID(for view: UIView, preferred preferredId: String? = nil) -> String {
+        if let preferredId, !preferredId.isEmpty {
+            objc_setAssociatedObject(view, &Self.elementIDKey, preferredId as NSString, .OBJC_ASSOCIATION_COPY_NONATOMIC)
+            return preferredId
+        }
+
+        if let existing = elementID(for: view) {
+            return existing
+        }
+
+        let newId = UUID().uuidString
+        objc_setAssociatedObject(view, &Self.elementIDKey, newId as NSString, .OBJC_ASSOCIATION_COPY_NONATOMIC)
+        return newId
+    }
+
+    private func elementID(for view: UIView) -> String? {
+        guard let stored = objc_getAssociatedObject(view, &Self.elementIDKey) as? NSString else { return nil }
+        let id = stored as String
+        return id.isEmpty ? nil : id
+    }
+
+    private func uuidKey(for elementId: String?) -> UUID {
+        if let elementId, let uuid = UUID(uuidString: elementId) {
+            return uuid
+        }
+        return UUID()
     }
 
     // MARK: - Drawing
@@ -539,6 +625,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     private func showSelectionBox() {
         guard let container = containerView, !selectedViews.isEmpty else { return }
+        selectionBox?.removeFromSuperview()
+        selectionBox = nil
+        selectionMovePan = nil
 
         // Esconder overlay pra permitir interação com selection box
         lassoOverlay?.isHidden = true
@@ -627,23 +716,41 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         box.addGestureRecognizer(boxPinch)
     }
 
+    private func isResizableImageElement(_ view: UIView) -> Bool {
+        view is UIImageView && view.tag != 888
+    }
+
+    private func showResizeHandles(for view: UIView) {
+        if !selectedViews.isEmpty || selectionBox != nil {
+            clearSelection()
+        }
+        selectedViews = [view]
+        showSelectionBox()
+    }
+
     @objc private func handleSelectionMove(_ gesture: UIPanGestureRecognizer) {
         guard let box = selectionBox else { return }
         let t = gesture.translation(in: box.superview)
 
-        box.center = CGPoint(x: box.center.x + t.x, y: box.center.y + t.y)
+        if t != .zero {
+            box.center = CGPoint(x: box.center.x + t.x, y: box.center.y + t.y)
 
-        // Mover todos os elementos selecionados junto
-        for view in selectedViews {
-            if let offset = selectionStartCenters[view] {
-                view.center = CGPoint(
-                    x: box.center.x + offset.x,
-                    y: box.center.y + offset.y
-                )
+            // Mover todos os elementos selecionados junto
+            for view in selectedViews {
+                if let offset = selectionStartCenters[view] {
+                    view.center = CGPoint(
+                        x: box.center.x + offset.x,
+                        y: box.center.y + offset.y
+                    )
+                }
             }
+            gesture.setTranslation(.zero, in: box.superview)
+            updateAllConnections()
         }
-        gesture.setTranslation(.zero, in: box.superview)
-        updateAllConnections()
+
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            saveProject()
+        }
     }
 
     @objc private func handleSelectionPinch(_ gesture: UIPinchGestureRecognizer) {
@@ -676,6 +783,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         }
 
         refreshSelectionBox()
+        updateAllConnections()
+
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            saveProject()
+        }
     }
 
     @objc private func handleResizePan(_ gesture: UIPanGestureRecognizer) {
@@ -733,6 +845,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         // Recalcular box
         refreshSelectionBox()
+        updateAllConnections()
+
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            saveProject()
+        }
     }
 
     private func refreshSelectionBox() {
@@ -920,6 +1037,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // MARK: - Highlight Scribble
 
     private static let highlightLayerName = "scribbleHighlight"
+    private static let completionLayerName = "taskCompletionX"
+    private static var completionStyleKey: UInt8 = 0
 
     private static let highlightColors: [UIColor] = [
         UIColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 0.8),
@@ -955,9 +1074,45 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     }
 
     func toggleHighlightOnSelected() {
-        if let view = deleteTargetView {
+        if let view = selectedOrEditingElement() {
             toggleHighlight(on: view)
         }
+    }
+
+    func toggleCompletionOnSelected() {
+        if let view = selectedOrEditingElement() {
+            toggleCompletion(on: view)
+        }
+    }
+
+    private func selectedOrEditingElement() -> UIView? {
+        if let view = deleteTargetView { return view }
+        guard let container = containerView else { return nil }
+        return firstResponderElement(in: container)
+    }
+
+    private func firstResponderElement(in view: UIView) -> UIView? {
+        if view.isFirstResponder {
+            if view === canvasView || view === containerView { return nil }
+            return canvasElement(containing: view)
+        }
+
+        for subview in view.subviews {
+            if let element = firstResponderElement(in: subview) {
+                return element
+            }
+        }
+        return nil
+    }
+
+    private func canvasElement(containing view: UIView) -> UIView? {
+        guard view !== canvasView, view !== containerView else { return nil }
+        if let parent = view.superview,
+           parent !== containerView,
+           !(parent is UIScrollView) {
+            return parent
+        }
+        return view
     }
 
     private func toggleHighlight(on view: UIView) {
@@ -971,8 +1126,27 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         addScribbleHighlight(to: view, color: color)
     }
 
+    private func toggleCompletion(on view: UIView) {
+        if let existing = view.layer.sublayers?.first(where: { $0.name == Self.completionLayerName }) {
+            existing.removeFromSuperlayer()
+            return
+        }
+
+        let color = Self.highlightColors.randomElement()!
+        let style = CompletionStyle.allCases.randomElement()!
+        addCompletionMark(to: view, color: color, style: style)
+    }
+
     private enum ScribbleStyle: CaseIterable {
         case oval, roundedRect, zigzag, cloud, spiral
+    }
+
+    private enum CompletionStyle: String, CaseIterable {
+        case x
+        case horizontal
+        case doubleHorizontal
+        case slash
+        case loop
     }
 
     func addScribbleHighlight(to view: UIView, color: UIColor) {
@@ -1005,116 +1179,283 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         layer.path = path.cgPath
         layer.strokeColor = color.cgColor
         layer.fillColor = nil
-        layer.lineWidth = 2.5
+        layer.lineWidth = max(2.8, min(4.4, min(view.bounds.width, view.bounds.height) * 0.035))
         layer.lineCap = .round
         layer.lineJoin = .round
         view.layer.addSublayer(layer)
     }
 
-    // Estilo 1: Oval clássico (2 passadas)
-    private func drawOvalScribble(path: UIBezierPath, in rect: CGRect) {
-        let cx = rect.midX, cy = rect.midY
-        let rx = rect.width / 2, ry = rect.height / 2
-        let steps = 60
-        for pass in 0..<2 {
-            let offset = CGFloat(pass) * 1.5
-            for i in 0...steps {
-                let angle = CGFloat(i) / CGFloat(steps) * .pi * 2
-                let nx = CGFloat.random(in: -3...3)
-                let ny = CGFloat.random(in: -3...3)
-                let px = cx + (rx + nx + offset) * cos(angle)
-                let py = cy + (ry + ny + offset) * sin(angle)
-                if i == 0 && pass == 0 { path.move(to: CGPoint(x: px, y: py)) }
-                else { path.addLine(to: CGPoint(x: px, y: py)) }
-            }
+    private func addCompletionMark(to view: UIView, color: UIColor, style: CompletionStyle) {
+        let rect = view.bounds.insetBy(dx: -6, dy: -6)
+        let path = UIBezierPath()
+
+        switch style {
+        case .x:
+            drawCompletionX(path: path, in: rect)
+        case .horizontal:
+            drawHorizontalCompletion(path: path, in: rect, lines: 1)
+        case .doubleHorizontal:
+            drawHorizontalCompletion(path: path, in: rect, lines: 2)
+        case .slash:
+            drawSlashCompletion(path: path, in: rect)
+        case .loop:
+            drawLoopCompletion(path: path, in: rect)
+        }
+
+        let layer = CAShapeLayer()
+        layer.name = Self.completionLayerName
+        objc_setAssociatedObject(layer, &Self.completionStyleKey, style.rawValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        layer.path = path.cgPath
+        layer.strokeColor = color.cgColor
+        layer.fillColor = nil
+        layer.lineWidth = max(4.4, min(7.0, min(view.bounds.width, view.bounds.height) * 0.055))
+        layer.lineCap = .round
+        layer.lineJoin = .round
+        layer.zPosition = 1000
+        view.layer.addSublayer(layer)
+    }
+
+    private func drawCompletionX(path: UIBezierPath, in rect: CGRect) {
+        drawHumanCompletionStroke(
+            path: path,
+            from: CGPoint(x: rect.minX + rect.width * 0.10, y: rect.minY + rect.height * 0.05),
+            to: CGPoint(x: rect.maxX - rect.width * 0.06, y: rect.maxY - rect.height * 0.02),
+            steps: 9,
+            jitter: 4.5,
+            bow: CGFloat.random(in: -16...16),
+            passes: 2
+        )
+        drawHumanCompletionStroke(
+            path: path,
+            from: CGPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.04),
+            to: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.maxY - rect.height * 0.04),
+            steps: 9,
+            jitter: 4.5,
+            bow: CGFloat.random(in: -16...16),
+            passes: 2
+        )
+    }
+
+    private func drawHorizontalCompletion(path: UIBezierPath, in rect: CGRect, lines: Int) {
+        let strokeCount = lines == 1 ? Int.random(in: 2...3) : Int.random(in: 3...4)
+        let spacing = max(5, min(12, rect.height * 0.08))
+        for index in 0..<strokeCount {
+            let centered = CGFloat(index) - CGFloat(strokeCount - 1) / 2
+            let y = rect.midY + centered * spacing + CGFloat.random(in: -4...4)
+            drawHumanCompletionStroke(
+                path: path,
+                from: CGPoint(x: rect.minX - rect.width * 0.08 + CGFloat.random(in: -6...4), y: y),
+                to: CGPoint(x: rect.maxX + rect.width * 0.08 + CGFloat.random(in: -4...8), y: y + CGFloat.random(in: -8...8)),
+                steps: 10,
+                jitter: 3.6,
+                bow: CGFloat.random(in: -10...10),
+                passes: 1
+            )
         }
     }
 
-    // Estilo 2: Retângulo arredondado rabiscado
+    private func drawSlashCompletion(path: UIBezierPath, in rect: CGRect) {
+        let points = [
+            CGPoint(x: rect.minX + rect.width * 0.18, y: rect.maxY - rect.height * 0.06),
+            CGPoint(x: rect.minX + rect.width * 0.30, y: rect.minY + rect.height * 0.14),
+            CGPoint(x: rect.minX + rect.width * 0.47, y: rect.maxY - rect.height * 0.08),
+            CGPoint(x: rect.minX + rect.width * 0.63, y: rect.minY + rect.height * 0.10),
+            CGPoint(x: rect.maxX - rect.width * 0.16, y: rect.maxY - rect.height * 0.04)
+        ]
+        drawHumanCompletionPolyline(path: path, points: points, jitter: 5.5, passes: 2)
+    }
+
+    private func drawLoopCompletion(path: UIBezierPath, in rect: CGRect) {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let rx = rect.width * 0.46
+        let ry = rect.height * 0.38
+        let steps = 42
+
+        for pass in 0..<3 {
+            var points: [CGPoint] = []
+            let passOffset = CGFloat(pass) * 0.12
+            for i in 0...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                let angle = t * .pi * 2.08 + passOffset + CGFloat.random(in: -0.02...0.02)
+                let wobble = 1 + CGFloat.random(in: -0.055...0.055)
+                points.append(
+                    CGPoint(
+                        x: center.x + cos(angle) * rx * wobble + CGFloat.random(in: -4...4),
+                        y: center.y + sin(angle) * ry * wobble + CGFloat.random(in: -4...4)
+                    )
+                )
+            }
+            appendSmoothCompletionStroke(points, to: path)
+        }
+    }
+
+    private func drawHumanCompletionStroke(
+        path: UIBezierPath,
+        from start: CGPoint,
+        to end: CGPoint,
+        steps: Int,
+        jitter: CGFloat,
+        bow: CGFloat,
+        passes: Int
+    ) {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = max(1, sqrt(dx * dx + dy * dy))
+        let normal = CGPoint(x: -dy / length, y: dx / length)
+
+        for pass in 0..<passes {
+            var points: [CGPoint] = []
+            let passDrift = (CGFloat(pass) - CGFloat(passes - 1) / 2) * CGFloat.random(in: 3...7)
+            for i in 0...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                let base = CGPoint(x: start.x + dx * t, y: start.y + dy * t)
+                let curve = sin(t * .pi) * bow
+                let noise = CGFloat.random(in: -jitter...jitter)
+                let along = CGFloat.random(in: -jitter * 0.45...jitter * 0.45)
+                points.append(
+                    CGPoint(
+                        x: base.x + normal.x * (curve + noise + passDrift) + (dx / length) * along,
+                        y: base.y + normal.y * (curve + noise + passDrift) + (dy / length) * along
+                    )
+                )
+            }
+            appendSmoothCompletionStroke(points, to: path)
+        }
+    }
+
+    private func drawHumanCompletionPolyline(path: UIBezierPath, points: [CGPoint], jitter: CGFloat, passes: Int) {
+        guard points.count > 1 else { return }
+        for pass in 0..<passes {
+            let passDrift = CGFloat(pass) * 2.2
+            let jittered = points.map {
+                CGPoint(
+                    x: $0.x + CGFloat.random(in: -jitter...jitter) + passDrift,
+                    y: $0.y + CGFloat.random(in: -jitter...jitter) - passDrift
+                )
+            }
+            appendSmoothCompletionStroke(jittered, to: path)
+        }
+    }
+
+    private func appendSmoothCompletionStroke(_ points: [CGPoint], to path: UIBezierPath) {
+        guard points.count > 1 else { return }
+        path.move(to: points[0])
+        if points.count == 2 {
+            path.addLine(to: points[1])
+            return
+        }
+        for index in 1..<(points.count - 1) {
+            let point = points[index]
+            let next = points[index + 1]
+            let midpoint = CGPoint(x: (point.x + next.x) / 2, y: (point.y + next.y) / 2)
+            path.addQuadCurve(to: midpoint, controlPoint: point)
+        }
+        path.addLine(to: points[points.count - 1])
+    }
+
+    private func drawScribbleStroke(path: UIBezierPath, from start: CGPoint, to end: CGPoint) {
+        drawHumanCompletionStroke(
+            path: path,
+            from: start,
+            to: end,
+            steps: 9,
+            jitter: 4,
+            bow: CGFloat.random(in: -12...12),
+            passes: 2
+        )
+    }
+
+    private func drawOvalScribble(path: UIBezierPath, in rect: CGRect) {
+        drawOrganicLoopScribble(path: path, in: rect, passes: 2, wobble: 5.0, stretch: 1.0)
+    }
+
     private func drawRoundedRectScribble(path: UIBezierPath, in rect: CGRect) {
-        let cornerRadius: CGFloat = min(rect.width, rect.height) * 0.2
-        let corners = [
-            CGPoint(x: rect.minX + cornerRadius, y: rect.minY),
-            CGPoint(x: rect.maxX - cornerRadius, y: rect.minY),
-            CGPoint(x: rect.maxX, y: rect.minY + cornerRadius),
-            CGPoint(x: rect.maxX, y: rect.maxY - cornerRadius),
-            CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY),
-            CGPoint(x: rect.minX + cornerRadius, y: rect.maxY),
-            CGPoint(x: rect.minX, y: rect.maxY - cornerRadius),
-            CGPoint(x: rect.minX, y: rect.minY + cornerRadius)
+        let radius = min(rect.width, rect.height) * 0.23
+        let anchors = [
+            CGPoint(x: rect.minX + radius, y: rect.minY + CGFloat.random(in: -3...3)),
+            CGPoint(x: rect.midX, y: rect.minY + CGFloat.random(in: -5...2)),
+            CGPoint(x: rect.maxX - radius, y: rect.minY + CGFloat.random(in: -3...3)),
+            CGPoint(x: rect.maxX + CGFloat.random(in: -2...5), y: rect.minY + radius),
+            CGPoint(x: rect.maxX + CGFloat.random(in: -2...5), y: rect.midY),
+            CGPoint(x: rect.maxX + CGFloat.random(in: -2...5), y: rect.maxY - radius),
+            CGPoint(x: rect.maxX - radius, y: rect.maxY + CGFloat.random(in: -2...5)),
+            CGPoint(x: rect.midX, y: rect.maxY + CGFloat.random(in: -2...6)),
+            CGPoint(x: rect.minX + radius, y: rect.maxY + CGFloat.random(in: -2...5)),
+            CGPoint(x: rect.minX + CGFloat.random(in: -5...2), y: rect.maxY - radius),
+            CGPoint(x: rect.minX + CGFloat.random(in: -5...2), y: rect.midY),
+            CGPoint(x: rect.minX + CGFloat.random(in: -5...2), y: rect.minY + radius)
         ]
         for pass in 0..<2 {
-            let off = CGFloat(pass) * 2
-            for (i, corner) in corners.enumerated() {
-                let next = corners[(i + 1) % corners.count]
-                let steps = 12
-                for s in 0...steps {
-                    let t = CGFloat(s) / CGFloat(steps)
-                    let px = corner.x + (next.x - corner.x) * t + CGFloat.random(in: -3...3) + off
-                    let py = corner.y + (next.y - corner.y) * t + CGFloat.random(in: -3...3) + off
-                    if i == 0 && s == 0 && pass == 0 { path.move(to: CGPoint(x: px, y: py)) }
-                    else { path.addLine(to: CGPoint(x: px, y: py)) }
-                }
+            let drift = CGFloat(pass) * 2.6
+            let points = anchors.map {
+                CGPoint(
+                    x: $0.x + CGFloat.random(in: -3.5...3.5) + drift,
+                    y: $0.y + CGFloat.random(in: -3.5...3.5) - drift
+                )
             }
+            appendClosedSmoothScribble(points, to: path)
         }
     }
 
-    // Estilo 3: Zigzag circular (dentes em volta)
     private func drawZigzagScribble(path: UIBezierPath, in rect: CGRect) {
-        let cx = rect.midX, cy = rect.midY
-        let rx = rect.width / 2, ry = rect.height / 2
-        let steps = 40
-        for i in 0...steps {
-            let angle = CGFloat(i) / CGFloat(steps) * .pi * 2
-            let spike = (i % 2 == 0) ? CGFloat.random(in: 6...12) : CGFloat.random(in: -4...0)
-            let px = cx + (rx + spike) * cos(angle) + CGFloat.random(in: -2...2)
-            let py = cy + (ry + spike) * sin(angle) + CGFloat.random(in: -2...2)
-            if i == 0 { path.move(to: CGPoint(x: px, y: py)) }
-            else { path.addLine(to: CGPoint(x: px, y: py)) }
-        }
+        drawOrganicLoopScribble(path: path, in: rect, passes: 2, wobble: 8.0, stretch: 0.96)
     }
 
-    // Estilo 4: Nuvem (bolhinhas em volta)
     private func drawCloudScribble(path: UIBezierPath, in rect: CGRect) {
-        let cx = rect.midX, cy = rect.midY
-        let rx = rect.width / 2, ry = rect.height / 2
-        let bumps = 16
-        for pass in 0..<2 {
-            let off = CGFloat(pass) * 2
-            for i in 0...bumps {
-                let angle = CGFloat(i) / CGFloat(bumps) * .pi * 2
-                let bumpSize = CGFloat.random(in: 6...14)
-                let midAngle = (CGFloat(i) + 0.5) / CGFloat(bumps) * .pi * 2
-                let basePx = cx + (rx + off) * cos(angle)
-                let basePy = cy + (ry + off) * sin(angle)
-                let bumpPx = cx + (rx + bumpSize + off) * cos(midAngle) + CGFloat.random(in: -2...2)
-                let bumpPy = cy + (ry + bumpSize + off) * sin(midAngle) + CGFloat.random(in: -2...2)
-                if i == 0 && pass == 0 {
-                    path.move(to: CGPoint(x: basePx, y: basePy))
-                }
-                path.addQuadCurve(to: CGPoint(x: basePx, y: basePy),
-                                  controlPoint: CGPoint(x: bumpPx, y: bumpPy))
-            }
-        }
+        drawOrganicLoopScribble(path: path, in: rect, passes: 3, wobble: 6.5, stretch: 1.04)
     }
 
-    // Estilo 5: Espiral (circula 1.5 voltas)
     private func drawSpiralScribble(path: UIBezierPath, in rect: CGRect) {
-        let cx = rect.midX, cy = rect.midY
-        let rx = rect.width / 2, ry = rect.height / 2
-        let totalSteps = 90
-        let totalAngle: CGFloat = .pi * 3 // 1.5 voltas
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let rx = rect.width * 0.5
+        let ry = rect.height * 0.5
+        let totalSteps = 56
+        let totalAngle: CGFloat = .pi * CGFloat.random(in: 2.05...2.35)
+        var points: [CGPoint] = []
         for i in 0...totalSteps {
             let t = CGFloat(i) / CGFloat(totalSteps)
-            let angle = t * totalAngle
-            let grow = 1.0 + t * 0.15 // espiral cresce levemente
-            let nx = CGFloat.random(in: -2.5...2.5)
-            let ny = CGFloat.random(in: -2.5...2.5)
-            let px = cx + (rx * grow + nx) * cos(angle)
-            let py = cy + (ry * grow + ny) * sin(angle)
-            if i == 0 { path.move(to: CGPoint(x: px, y: py)) }
-            else { path.addLine(to: CGPoint(x: px, y: py)) }
+            let angle = t * totalAngle + CGFloat.random(in: -0.018...0.018)
+            let grow = 0.88 + t * 0.18
+            points.append(
+                CGPoint(
+                    x: center.x + rx * grow * cos(angle) + CGFloat.random(in: -3...3),
+                    y: center.y + ry * grow * sin(angle) + CGFloat.random(in: -3...3)
+                )
+            )
         }
+        appendSmoothCompletionStroke(points, to: path)
+    }
+
+    private func drawOrganicLoopScribble(path: UIBezierPath, in rect: CGRect, passes: Int, wobble: CGFloat, stretch: CGFloat) {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let rx = rect.width * 0.5 * stretch
+        let ry = rect.height * 0.5
+        let steps = 54
+
+        for pass in 0..<passes {
+            var points: [CGPoint] = []
+            let phase = CGFloat.random(in: 0...(CGFloat.pi * 2))
+            let start = CGFloat.random(in: -0.35...0.18) + CGFloat(pass) * 0.08
+            let total = CGFloat.pi * 2 * CGFloat.random(in: 1.02...1.10)
+            for i in 0...steps {
+                let t = CGFloat(i) / CGFloat(steps)
+                let angle = start + total * t
+                let wave = sin(angle * 2.4 + phase) * wobble + sin(angle * 4.7 + phase) * wobble * 0.35
+                let drift = CGFloat(pass) * 1.8
+                points.append(
+                    CGPoint(
+                        x: center.x + (rx + wave + CGFloat.random(in: -2.8...2.8) + drift) * cos(angle),
+                        y: center.y + (ry + wave + CGFloat.random(in: -2.8...2.8) - drift) * sin(angle)
+                    )
+                )
+            }
+            appendSmoothCompletionStroke(points, to: path)
+        }
+    }
+
+    private func appendClosedSmoothScribble(_ points: [CGPoint], to path: UIBezierPath) {
+        guard let first = points.first else { return }
+        appendSmoothCompletionStroke(points + [first], to: path)
     }
 
     /// Returns the highlight color name for a view, or nil if no highlight
@@ -1125,13 +1466,33 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         return Self.highlightColorNames[uiColor]
     }
 
+    func completionColorName(for view: UIView) -> String? {
+        guard let layer = view.layer.sublayers?.first(where: { $0.name == Self.completionLayerName }) as? CAShapeLayer,
+              let cgColor = layer.strokeColor else { return nil }
+        let uiColor = UIColor(cgColor: cgColor)
+        return Self.highlightColorNames[uiColor]
+    }
+
+    func completionStyleName(for view: UIView) -> String? {
+        guard let layer = view.layer.sublayers?.first(where: { $0.name == Self.completionLayerName }) else { return nil }
+        return (objc_getAssociatedObject(layer, &Self.completionStyleKey) as? String) ?? CompletionStyle.x.rawValue
+    }
+
+    private func restoreVisualMarks(to view: UIView, from element: CanvasElement) {
+        if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
+            addScribbleHighlight(to: view, color: hlColor)
+        }
+        if let completionName = element.completionColor,
+           let completionColor = Self.highlightColorFromName[completionName] {
+            let style = element.completionStyle.flatMap(CompletionStyle.init(rawValue:)) ?? .x
+            addCompletionMark(to: view, color: completionColor, style: style)
+        }
+    }
+
     /// Traz elemento pra frente (abaixo do canvas) e ativa textView se tiver
     @objc private func handleElementTap(_ gesture: UITapGestureRecognizer) {
         guard let view = gesture.view else { return }
-        bringElementToFront(view)
-        showDeleteButton(for: view)
-        showConnectionPoints(for: view)
-        showDirectionalButtons(for: view)
+        showSelectionUI(for: view)
     }
 
     /// Navega para o elemento mais próximo na direção (0=up, 1=down, 2=left, 3=right)
@@ -1207,6 +1568,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             element = view
         }
         bringElementToFront(element)
+        if isResizableImageElement(element) {
+            showResizeHandles(for: element)
+        } else if !selectedViews.isEmpty || selectionBox != nil {
+            clearSelection()
+        }
         showDeleteButton(for: element)
         showConnectionPoints(for: element)
         showDirectionalButtons(for: element)
@@ -1341,38 +1707,56 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         guard let container = containerView else { return }
 
         let frame = view.frame
-        let pointSize: CGFloat = 20
-        let touchSize: CGFloat = 44
+        let iconSize: CGFloat = 28
+        let touchSize: CGFloat = 58
+        let buttonSize: CGFloat = 32
+        let gap: CGFloat = 16
 
-        // 4 pontos: topo, base, esquerda, direita
-        let positions = [
-            CGPoint(x: frame.midX, y: frame.minY),  // top
-            CGPoint(x: frame.midX, y: frame.maxY),  // bottom
-            CGPoint(x: frame.minX, y: frame.midY),  // left
-            CGPoint(x: frame.maxX, y: frame.midY),  // right
+        let top = CGPoint(x: frame.midX, y: frame.minY - gap - buttonSize / 2)
+        let bottom = CGPoint(x: frame.midX, y: frame.maxY + gap + buttonSize / 2)
+        let left = CGPoint(x: frame.minX - gap - buttonSize / 2, y: frame.midY)
+        let right = CGPoint(x: frame.maxX + gap + buttonSize / 2, y: frame.midY)
+        let midpoint: (CGPoint, CGPoint) -> CGPoint = { a, b in
+            CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        }
+
+        // 4 handles nos intervalos diagonais entre os botoes verdes.
+        let configs: [(pos: CGPoint, symbol: String)] = [
+            (midpoint(top, left), "arrow.up.left"),
+            (midpoint(top, right), "arrow.up.right"),
+            (midpoint(bottom, left), "arrow.down.left"),
+            (midpoint(bottom, right), "arrow.down.right"),
         ]
 
-        for pos in positions {
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .bold)
+
+        for cfg in configs {
             let point = UIView()
-            point.frame = CGRect(x: pos.x - touchSize / 2, y: pos.y - touchSize / 2,
+            point.frame = CGRect(x: cfg.pos.x - touchSize / 2, y: cfg.pos.y - touchSize / 2,
                                  width: touchSize, height: touchSize)
             point.backgroundColor = .clear
             point.isUserInteractionEnabled = true
 
-            // Bolinha visual
-            let dot = UIView()
-            dot.frame = CGRect(x: (touchSize - pointSize) / 2, y: (touchSize - pointSize) / 2,
-                               width: pointSize, height: pointSize)
-            dot.backgroundColor = .systemBlue
-            dot.layer.cornerRadius = pointSize / 2
-            dot.layer.borderColor = UIColor.white.cgColor
-            dot.layer.borderWidth = 2
-            dot.layer.shadowColor = UIColor.black.cgColor
-            dot.layer.shadowOpacity = 0.2
-            dot.layer.shadowRadius = 2
-            dot.layer.shadowOffset = CGSize(width: 0, height: 1)
-            dot.isUserInteractionEnabled = false
-            point.addSubview(dot)
+            let badge = UIView()
+            badge.frame = CGRect(x: (touchSize - iconSize) / 2, y: (touchSize - iconSize) / 2,
+                                 width: iconSize, height: iconSize)
+            badge.backgroundColor = UIColor.white.withAlphaComponent(0.94)
+            badge.layer.cornerRadius = iconSize / 2
+            badge.layer.borderColor = UIColor.systemBlue.cgColor
+            badge.layer.borderWidth = 2
+            badge.layer.shadowColor = UIColor.black.cgColor
+            badge.layer.shadowOpacity = 0.22
+            badge.layer.shadowRadius = 2
+            badge.layer.shadowOffset = CGSize(width: 0, height: 1)
+            badge.isUserInteractionEnabled = false
+
+            let arrow = UIImageView(image: UIImage(systemName: cfg.symbol, withConfiguration: iconConfig))
+            arrow.tintColor = .systemBlue
+            arrow.contentMode = .scaleAspectFit
+            arrow.frame = badge.bounds.insetBy(dx: 6, dy: 6)
+            arrow.isUserInteractionEnabled = false
+            badge.addSubview(arrow)
+            point.addSubview(badge)
 
             // Pan gesture para arrastar seta
             let pan = UIPanGestureRecognizer(target: self, action: #selector(handleConnectionDrag(_:)))
@@ -1477,21 +1861,86 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         createConnectedText(from: sourceView, direction: sender.tag)
     }
 
+    private func connectedTextFrame(from sourceView: UIView, direction: Int, size: CGSize) -> CGRect {
+        pruneStaleConnections()
+
+        let sourceFrame = sourceView.frame
+        let spacing: CGFloat = 200
+        let baseCenter: CGPoint
+
+        switch direction {
+        case 0: baseCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.minY - spacing)
+        case 1: baseCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.maxY + spacing)
+        case 2: baseCenter = CGPoint(x: sourceFrame.minX - spacing, y: sourceFrame.midY)
+        case 3: baseCenter = CGPoint(x: sourceFrame.maxX + spacing, y: sourceFrame.midY)
+        default: baseCenter = sourceView.center
+        }
+
+        let firstSlot = connectedChildrenCount(from: sourceView, direction: direction)
+        for slot in firstSlot..<(firstSlot + 40) {
+            let center = connectedTextCenter(base: baseCenter, direction: direction, slot: slot, size: size)
+            let frame = CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+            if isConnectedTextFrameAvailable(frame, ignoring: sourceView) {
+                return frame
+            }
+        }
+
+        let center = connectedTextCenter(base: baseCenter, direction: direction, slot: firstSlot, size: size)
+        return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+    }
+
+    private func connectedChildrenCount(from sourceView: UIView, direction: Int) -> Int {
+        connections.filter { conn in
+            conn.from === sourceView && connectionDirection(from: sourceView.frame, to: conn.to.frame) == direction
+        }.count
+    }
+
+    private func connectionDirection(from sourceFrame: CGRect, to targetFrame: CGRect) -> Int {
+        let dx = targetFrame.midX - sourceFrame.midX
+        let dy = targetFrame.midY - sourceFrame.midY
+
+        if abs(dx) >= abs(dy) {
+            return dx < 0 ? 2 : 3
+        }
+        return dy < 0 ? 0 : 1
+    }
+
+    private func connectedTextCenter(base: CGPoint, direction: Int, slot: Int, size: CGSize) -> CGPoint {
+        let laneStep: CGFloat = (direction == 0 || direction == 1) ? size.width + 48 : size.height + 36
+        let lane = (slot + 1) / 2
+        let sign: CGFloat = slot == 0 ? 0 : (slot % 2 == 1 ? 1 : -1)
+        let offset = CGFloat(lane) * laneStep * sign
+
+        if direction == 0 || direction == 1 {
+            return CGPoint(x: base.x + offset, y: base.y)
+        }
+        return CGPoint(x: base.x, y: base.y + offset)
+    }
+
+    private func isConnectedTextFrameAvailable(_ frame: CGRect, ignoring sourceView: UIView) -> Bool {
+        guard let container = containerView else { return true }
+        let paddedFrame = frame.insetBy(dx: -18, dy: -18)
+
+        for (_, view) in allElementViews {
+            guard view !== sourceView,
+                  view.superview === container,
+                  !view.isHidden,
+                  view.alpha > 0.01 else { continue }
+
+            if paddedFrame.intersects(view.frame.insetBy(dx: -8, dy: -8)) {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Cria texto conectado numa direção (0=cima, 1=baixo, 2=esquerda, 3=direita)
     private func createConnectedText(from sourceView: UIView, direction: Int) {
         guard containerView != nil else { return }
 
-        let sourceFrame = sourceView.frame
-        let spacing: CGFloat = 200
-
-        let newCenter: CGPoint
-        switch direction {
-        case 0: newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.minY - spacing)
-        case 1: newCenter = CGPoint(x: sourceFrame.midX, y: sourceFrame.maxY + spacing)
-        case 2: newCenter = CGPoint(x: sourceFrame.minX - spacing, y: sourceFrame.midY)
-        case 3: newCenter = CGPoint(x: sourceFrame.maxX + spacing, y: sourceFrame.midY)
-        default: return
-        }
+        let textSize = CGSize(width: 240, height: 60)
+        let textFrame = connectedTextFrame(from: sourceView, direction: direction, size: textSize)
+        let newCenter = CGPoint(x: textFrame.midX, y: textFrame.midY)
 
         hideDeleteButton()
         hideConnectionPoints()
@@ -1506,7 +1955,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         textView.backgroundColor = .clear
         textView.isScrollEnabled = false
         textView.textAlignment = .center
-        textView.frame = CGRect(x: newCenter.x - 120, y: newCenter.y - 30, width: 240, height: 60)
+        textView.frame = textFrame
         textView.layer.cornerRadius = 4
         textView.isUserInteractionEnabled = true
         textView.tintColor = currentTextColor
@@ -1590,11 +2039,13 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     private func createConnection(from: UIView, to: UIView) {
         guard let container = containerView else { return }
+        pruneStaleConnections()
 
         // Checar se já existe essa conexão
         if connections.contains(where: { $0.from === from && $0.to === to }) { return }
 
         let layer = CAShapeLayer()
+        layer.name = Self.connectionLayerName
         layer.strokeColor = currentArrowColor
         layer.fillColor = UIColor.clear.cgColor
         layer.lineWidth = 2.5
@@ -1707,9 +2158,34 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     }
 
     func updateAllConnections() {
+        pruneStaleConnections()
         for conn in connections {
             updateConnectionArrow(from: conn.from, to: conn.to, layer: conn.layer)
         }
+    }
+
+    private func pruneStaleConnections() {
+        guard let container = containerView else { return }
+        connections.removeAll { conn in
+            let isStale = conn.from.superview !== container ||
+                conn.to.superview !== container ||
+                conn.layer.superlayer == nil
+            if isStale {
+                conn.layer.removeFromSuperlayer()
+            }
+            return isStale
+        }
+    }
+
+    private func clearConnections() {
+        for conn in connections {
+            conn.layer.removeFromSuperlayer()
+        }
+        connections.removeAll()
+
+        containerView?.layer.sublayers?
+            .filter { $0.name == Self.connectionLayerName }
+            .forEach { $0.removeFromSuperlayer() }
     }
 
     private func removeConnections(for view: UIView) {
@@ -1776,14 +2252,12 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         let point = gesture.location(in: container)
 
         if let element = findElement(at: point) {
-            bringElementToFront(element)
-            showDeleteButton(for: element)
-            showConnectionPoints(for: element)
-            showDirectionalButtons(for: element)
+            showSelectionUI(for: element)
         } else {
             // Checar se tocou numa seta
             if handleTapOnConnection(at: point) { return }
             // Tap em área vazia — deselecionar tudo
+            dismissFloatingEditMenu()
             if !selectedViews.isEmpty { clearSelection() }
             hideDeleteButton()
             hideConnectionPoints()
@@ -1816,6 +2290,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             let point = gesture.location(in: container)
             activeDragElement = findElement(at: point)
             if let el = activeDragElement {
+                if !selectedViews.isEmpty || selectionBox != nil {
+                    clearSelection()
+                }
                 bringElementToFront(el)
                 el.layer.shadowColor = UIColor.systemBlue.cgColor
                 el.layer.shadowOpacity = 0.5
@@ -1830,8 +2307,15 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 updateAllConnections()
             }
         case .ended, .cancelled:
-            activeDragElement?.layer.shadowOpacity = 0
+            let movedElement = activeDragElement
+            movedElement?.layer.shadowOpacity = 0
             activeDragElement = nil
+            if movedElement != nil {
+                if let movedElement = movedElement, isResizableImageElement(movedElement) {
+                    showResizeHandles(for: movedElement)
+                }
+                saveProject()
+            }
         default: break
         }
     }
@@ -1884,6 +2368,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     }
 
     private func resignAllTextViews() {
+        dismissFloatingEditMenu()
         guard let container = containerView else { return }
         for view in container.subviews where view !== canvasView {
             if let tv = view as? NonZoomableTextView {
@@ -1960,6 +2445,10 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         addElementToCanvas(imageView)
         imageViews[item.id] = imageView
         allElementViews[item.id] = imageView
+        hideDeleteButton()
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        showResizeHandles(for: imageView)
     }
 
     // MARK: - Text (handwriting font)
@@ -2458,8 +2947,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         addAudioPlayer(url: url, duration: duration)
     }
 
-    private func addAudioPlayer(url: URL, duration: TimeInterval, at position: CGPoint? = nil) {
-        guard let container = containerView else { return }
+    @discardableResult
+    private func addAudioPlayer(url: URL, duration: TimeInterval, at position: CGPoint? = nil, elementId: String? = nil) -> UIView? {
+        guard containerView != nil else { return nil }
         let pos = position ?? visibleCenter()
 
         let item = CanvasAudioItem(fileURL: url, position: pos, duration: duration)
@@ -2506,7 +2996,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
         addDragGestures(to: playerView)
         addElementToCanvas(playerView)
-        allElementViews[item.id] = playerView
+        let resolvedId = ensureElementID(for: playerView, preferred: elementId ?? item.id.uuidString)
+        allElementViews[uuidKey(for: resolvedId)] = playerView
+        return playerView
     }
 
     @objc private func playAudioTapped(_ sender: UIButton) {
@@ -2612,6 +3104,10 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         imageViews[item.id] = imageView
         allElementViews[item.id] = imageView
         state.images.append(item)
+        hideDeleteButton()
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        showResizeHandles(for: imageView)
 
         canvasView.drawing = PKDrawing()
     }
@@ -2821,6 +3317,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     /// Collects project data from canvas without saving
     private func collectProjectData(container: UIView, canvas: PKCanvasView) -> (CanvasDocument, Data, UIImage?) {
         var elements: [CanvasElement] = []
+        var savedElementViews: [(view: UIView, id: String)] = []
         var fileIndex = 0
 
         for sibling in container.subviews {
@@ -2831,10 +3328,14 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             if sibling.alpha <= 0 || sibling.isHidden { continue }
 
             let hl = highlightColorName(for: sibling)
+            let done = completionColorName(for: sibling)
+            let doneStyle = completionStyleName(for: sibling)
+            let elementId = ensureElementID(for: sibling)
 
             if let tv = sibling as? UITextView {
                 let text = (tv.tag == Self.placeholderTag) ? "" : (tv.text ?? "")
-                elements.append(CanvasElement(type: .text, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, highlightColor: hl))
+                elements.append(CanvasElement(id: elementId, type: .text, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
+                savedElementViews.append((sibling, elementId))
                 continue
             }
 
@@ -2844,7 +3345,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 let text = (textView?.tag == Self.placeholderTag) ? "" : (textView?.text ?? "")
                 let color = PostItColor.from(uiColor: bgColor)
                 let rotation = atan2(sibling.transform.b, sibling.transform.a)
-                elements.append(CanvasElement(type: .postit, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.bounds.width, height: sibling.bounds.height, color: color, rotation: rotation, highlightColor: hl))
+                elements.append(CanvasElement(id: elementId, type: .postit, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.bounds.width, height: sibling.bounds.height, color: color, rotation: rotation, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
+                savedElementViews.append((sibling, elementId))
                 continue
             }
 
@@ -2852,7 +3354,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 let filename = "img_\(fileIndex).jpg"
                 fileIndex += 1
                 StorageService.saveImage(image, named: filename, canvasId: projectId)
-                elements.append(CanvasElement(type: sibling.tag == 888 ? .strokeGroup : .image, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, highlightColor: hl))
+                elements.append(CanvasElement(id: elementId, type: sibling.tag == 888 ? .strokeGroup : .image, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
+                savedElementViews.append((sibling, elementId))
                 continue
             }
 
@@ -2865,29 +3368,33 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                     let durationText = durationLabel?.text ?? "0:00"
                     let parts = durationText.split(separator: ":")
                     let duration = parts.count == 2 ? (Double(parts[0]) ?? 0) * 60 + (Double(parts[1]) ?? 0) : 0
-                    elements.append(CanvasElement(type: .audio, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, duration: duration, highlightColor: hl))
+                    elements.append(CanvasElement(id: elementId, type: .audio, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, duration: duration, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
+                    savedElementViews.append((sibling, elementId))
                 }
                 continue
             }
         }
 
         var viewToIndex: [ObjectIdentifier: Int] = [:]
-        var viewIndex = 0
-        for sibling in container.subviews {
-            if sibling === canvas || sibling === lassoOverlay || sibling === selectionBox { continue }
-            if sibling === activeDeleteButton || sibling === activeHighlightButton { continue }
-            if sibling.alpha <= 0 || sibling.isHidden { continue }
-            if connectionPoints.contains(where: { $0 === sibling }) { continue }
-            if directionalButtons.contains(where: { $0 === sibling }) { continue }
-            viewToIndex[ObjectIdentifier(sibling)] = viewIndex
-            viewIndex += 1
+        var viewToId: [ObjectIdentifier: String] = [:]
+        for (index, item) in savedElementViews.enumerated() {
+            let key = ObjectIdentifier(item.view)
+            viewToIndex[key] = index
+            viewToId[key] = item.id
         }
 
         var connectionData: [CanvasConnectionData] = []
         for conn in connections {
-            if let fromIdx = viewToIndex[ObjectIdentifier(conn.from)],
-               let toIdx = viewToIndex[ObjectIdentifier(conn.to)] {
-                connectionData.append(CanvasConnectionData(fromIndex: fromIdx, toIndex: toIdx))
+            let fromKey = ObjectIdentifier(conn.from)
+            let toKey = ObjectIdentifier(conn.to)
+            if let fromIdx = viewToIndex[fromKey],
+               let toIdx = viewToIndex[toKey] {
+                connectionData.append(CanvasConnectionData(
+                    fromIndex: fromIdx,
+                    toIndex: toIdx,
+                    fromId: viewToId[fromKey],
+                    toId: viewToId[toKey]
+                ))
             }
         }
 
@@ -2909,15 +3416,21 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     func loadProject() {
         // Try local cache first for instant display
-        if let localDoc = StorageService.loadDocument(id: projectId) {
+        let localDoc = StorageService.loadDocument(id: projectId)
+        if let localDoc {
             restoreDocument(localDoc)
         }
 
-        // Then fetch from cloud (source of truth) and update
+        // Then fetch from cloud, but never replace a newer local edit with stale cloud data.
         Task {
             if let cloudDoc = await SyncService.loadDocument(id: projectId) {
                 await MainActor.run {
-                    restoreDocument(cloudDoc)
+                    if let newestLocal = StorageService.loadDocument(id: projectId),
+                       newestLocal.updatedAt > cloudDoc.updatedAt {
+                        restoreDocument(newestLocal)
+                    } else {
+                        restoreDocument(cloudDoc)
+                    }
                 }
             }
         }
@@ -2931,15 +3444,30 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             canvasView?.drawing = drawing
         }
 
-        // Limpar elementos existentes antes de restaurar
+        // Limpar elementos e setas existentes antes de restaurar.
+        // O load usa cache local e depois nuvem; sem limpar as layers antigas,
+        // as mesmas conexões ficam duplicadas e reaparecem ao mover elementos.
+        clearConnections()
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        hideDeleteButton()
         for (_, view) in allElementViews {
             view.removeFromSuperview()
         }
         allElementViews.removeAll()
         imageViews.removeAll()
 
-        // Array ordenado para mapear índices → views (para restaurar conexões)
+        // Índices mantêm compatibilidade com projetos antigos; IDs preservam a conexão exata.
         var loadedViews: [UIView?] = []
+        var loadedViewsById: [String: UIView] = [:]
+
+        func registerLoadedView(_ view: UIView, from element: CanvasElement) -> (id: String, key: UUID) {
+            let id = ensureElementID(for: view, preferred: element.id)
+            let key = uuidKey(for: id)
+            loadedViewsById[id] = view
+            allElementViews[key] = view
+            return (id, key)
+        }
 
         // Recriar elementos
         for element in doc.elements {
@@ -2982,10 +3510,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
                 addDragGestures(to: textView)
                 addElementToCanvas(textView)
-                allElementViews[UUID()] = textView
-                if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
-                    addScribbleHighlight(to: textView, color: hlColor)
-                }
+                _ = registerLoadedView(textView, from: element)
+                restoreVisualMarks(to: textView, from: element)
                 loadedViews.append(textView)
 
             case .postit:
@@ -3041,10 +3567,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 postIt.addSubview(textView)
                 addDragGestures(to: postIt)
                 addElementToCanvas(postIt)
-                allElementViews[UUID()] = postIt
-                if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
-                    addScribbleHighlight(to: postIt, color: hlColor)
-                }
+                _ = registerLoadedView(postIt, from: element)
+                restoreVisualMarks(to: postIt, from: element)
                 loadedViews.append(postIt)
 
             case .image, .strokeGroup:
@@ -3066,14 +3590,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 }
                 addDragGestures(to: imgView)
                 addElementToCanvas(imgView)
-                let id = UUID()
-                allElementViews[id] = imgView
+                let registered = registerLoadedView(imgView, from: element)
                 if element.type == .image {
-                    imageViews[id] = imgView
+                    imageViews[registered.key] = imgView
                 }
-                if let hlName = element.highlightColor, let hlColor = Self.highlightColorFromName[hlName] {
-                    addScribbleHighlight(to: imgView, color: hlColor)
-                }
+                restoreVisualMarks(to: imgView, from: element)
                 loadedViews.append(imgView)
 
             case .audio:
@@ -3083,21 +3604,41 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 }
                 let url = StorageService.audioFileURL(named: filename, canvasId: projectId)
                 let duration = element.duration ?? 0
-                addAudioPlayer(url: url, duration: duration, at: pos)
-                loadedViews.append(nil) // áudio não tem view conectável
+                if let playerView = addAudioPlayer(url: url, duration: duration, at: pos, elementId: element.id) {
+                    let id = ensureElementID(for: playerView, preferred: element.id)
+                    loadedViewsById[id] = playerView
+                    loadedViews.append(playerView)
+                } else {
+                    loadedViews.append(nil)
+                }
             }
         }
 
         // Restaurar conexões
         if let connData = doc.connections {
             for conn in connData {
-                guard conn.fromIndex < loadedViews.count,
-                      conn.toIndex < loadedViews.count,
-                      let fromView = loadedViews[conn.fromIndex],
-                      let toView = loadedViews[conn.toIndex] else { continue }
+                let idConnection: (UIView, UIView)? = {
+                    guard let fromId = conn.fromId,
+                          let toId = conn.toId,
+                          let fromView = loadedViewsById[fromId],
+                          let toView = loadedViewsById[toId] else { return nil }
+                    return (fromView, toView)
+                }()
+
+                let indexConnection: (UIView, UIView)? = {
+                    guard conn.fromIndex < loadedViews.count,
+                          conn.toIndex < loadedViews.count,
+                          let fromView = loadedViews[conn.fromIndex],
+                          let toView = loadedViews[conn.toIndex] else { return nil }
+                    return (fromView, toView)
+                }()
+
+                guard let (fromView, toView) = idConnection ?? indexConnection else { continue }
                 createConnection(from: fromView, to: toView)
             }
         }
+
+        centerViewportOnLoadedContent(from: doc)
     }
 }
 

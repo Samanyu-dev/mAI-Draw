@@ -60,6 +60,7 @@ enum CanvasElementType: String, Codable {
 }
 
 struct CanvasElement: Codable {
+    var id: String? = nil
     var type: CanvasElementType
     var text: String?
     var x: CGFloat
@@ -72,6 +73,8 @@ struct CanvasElement: Codable {
     var duration: TimeInterval?
     var scale: CGFloat?
     var highlightColor: String?
+    var completionColor: String?
+    var completionStyle: String?
 }
 
 // MARK: - Connection (setas entre elementos)
@@ -79,6 +82,8 @@ struct CanvasElement: Codable {
 struct CanvasConnectionData: Codable {
     var fromIndex: Int
     var toIndex: Int
+    var fromId: String? = nil
+    var toId: String? = nil
 }
 
 // MARK: - Canvas State
