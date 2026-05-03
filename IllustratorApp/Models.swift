@@ -29,6 +29,34 @@ enum PostItColor: String, CaseIterable, Codable {
     }
 }
 
+enum MarkdownCardColor: String, CaseIterable, Codable {
+    case crystal, blue, green, amber, pink, purple
+
+    static let palette: [MarkdownCardColor] = [.blue, .green, .amber, .pink]
+
+    var label: String {
+        switch self {
+        case .crystal: return "Cristal"
+        case .blue: return "Azul"
+        case .green: return "Verde"
+        case .amber: return "Amarelo"
+        case .pink: return "Rosa"
+        case .purple: return "Roxo"
+        }
+    }
+
+    var uiColor: UIColor {
+        switch self {
+        case .crystal: return UIColor(white: 1.0, alpha: 0.20)
+        case .blue: return UIColor(red: 0.18, green: 0.46, blue: 1.0, alpha: 0.28)
+        case .green: return UIColor(red: 0.12, green: 0.72, blue: 0.46, alpha: 0.26)
+        case .amber: return UIColor(red: 1.0, green: 0.68, blue: 0.18, alpha: 0.28)
+        case .pink: return UIColor(red: 1.0, green: 0.28, blue: 0.62, alpha: 0.26)
+        case .purple: return UIColor(red: 0.56, green: 0.32, blue: 1.0, alpha: 0.28)
+        }
+    }
+}
+
 struct CanvasPostItItem: Identifiable {
     let id = UUID()
     var text: String
@@ -56,7 +84,7 @@ struct CanvasDocument: Codable, Identifiable {
 }
 
 enum CanvasElementType: String, Codable {
-    case text, postit, image, audio, strokeGroup
+    case text, postit, markdownCard, image, audio, strokeGroup
 }
 
 struct CanvasElement: Codable {
@@ -68,6 +96,7 @@ struct CanvasElement: Codable {
     var width: CGFloat
     var height: CGFloat
     var color: PostItColor?
+    var cardColor: MarkdownCardColor? = nil
     var rotation: CGFloat?
     var file: String?
     var duration: TimeInterval?

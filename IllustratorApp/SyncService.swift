@@ -87,6 +87,7 @@ struct SyncService {
                     width: row.width,
                     height: row.height,
                     color: row.metadata?["color"].flatMap { PostItColor(rawValue: $0) },
+                    cardColor: row.metadata?["cardColor"].flatMap { MarkdownCardColor(rawValue: $0) },
                     rotation: row.metadata?["rotation"].flatMap { CGFloat(Double($0) ?? 0) },
                     file: row.metadata?["file"],
                     duration: row.metadata?["duration"].flatMap { Double($0) },
@@ -239,6 +240,7 @@ struct SyncService {
             var meta: [String: String] = [:]
             if let elementId = element.id { meta["elementId"] = elementId }
             if let color = element.color { meta["color"] = color.rawValue }
+            if let cardColor = element.cardColor { meta["cardColor"] = cardColor.rawValue }
             if let file = element.file { meta["file"] = file }
             if let rotation = element.rotation { meta["rotation"] = "\(rotation)" }
             if let scale = element.scale { meta["scale"] = "\(scale)" }

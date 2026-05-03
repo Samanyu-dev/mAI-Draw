@@ -92,6 +92,230 @@ class NonZoomableTextView: UITextView {
     }
 }
 
+// MARK: - Markdown Liquid Glass Card
+
+final class MarkdownCardView: UIView {
+    let glassView = UIVisualEffectView()
+    let textView = NonZoomableTextView()
+    private(set) var cardColor: MarkdownCardColor
+    var rawMarkdown: String = ""
+
+    private let textInsets = UIEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
+    private let cornerRadius: CGFloat = 24
+
+    init(color: MarkdownCardColor) {
+        self.cardColor = color
+        super.init(frame: .zero)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        self.cardColor = .crystal
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        backgroundColor = .clear
+        clipsToBounds = false
+        isUserInteractionEnabled = true
+
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.16
+        layer.shadowRadius = 18
+        layer.shadowOffset = CGSize(width: 0, height: 10)
+
+        glassView.isUserInteractionEnabled = false
+        glassView.clipsToBounds = true
+        glassView.layer.cornerRadius = cornerRadius
+        glassView.layer.borderWidth = 1
+        glassView.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
+        addSubview(glassView)
+
+        textView.backgroundColor = .clear
+        textView.isScrollEnabled = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textAlignment = .left
+        textView.tintColor = .label
+        textView.dataDetectorTypes = []
+        textView.linkTextAttributes = [
+            .foregroundColor: UIColor.systemBlue,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
+        addSubview(textView)
+
+        updateGlassEffect()
+        renderMarkdown(textColor: .label)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        glassView.frame = bounds
+        textView.frame = bounds.inset(by: textInsets)
+
+        if #available(iOS 26.0, *) {
+            glassView.cornerConfiguration = .uniformCorners(radius: .fixed(cornerRadius))
+            cornerConfiguration = .uniformCorners(radius: .fixed(cornerRadius))
+        } else {
+            glassView.layer.cornerRadius = cornerRadius
+            layer.cornerRadius = cornerRadius
+        }
+    }
+
+    func updateGlassEffect() {
+        if #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.tintColor = cardColor.uiColor
+            effect.isInteractive = true
+            glassView.effect = effect
+        } else {
+            glassView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            glassView.backgroundColor = cardColor.uiColor
+        }
+    }
+
+    func applyColor(_ color: MarkdownCardColor) {
+        cardColor = color
+        updateGlassEffect()
+    }
+
+    func setMarkdown(_ markdown: String, textColor: UIColor) {
+        rawMarkdown = markdown
+        renderMarkdown(textColor: textColor)
+    }
+
+    func beginMarkdownEditing(textColor: UIColor) {
+        textView.attributedText = nil
+        textView.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
+        textView.textColor = textColor
+        textView.tintColor = textColor
+        textView.text = rawMarkdown
+        textView.tag = 0
+    }
+
+    func updateMarkdownFromEditor() {
+        if textView.tag != 999 {
+            rawMarkdown = textView.text ?? ""
+        }
+    }
+
+    func renderMarkdown(textColor: UIColor) {
+        let trimmed = rawMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            textView.attributedText = nil
+            textView.font = .systemFont(ofSize: 16, weight: .regular)
+            textView.text = "Toque para digitar Markdown"
+            textView.textColor = textColor.withAlphaComponent(0.42)
+            textView.tag = 999
+            return
+        }
+
+        textView.tag = 0
+        textView.attributedText = Self.renderedMarkdown(from: rawMarkdown, textColor: textColor)
+    }
+
+    private static func renderedMarkdown(from markdown: String, textColor: UIColor) -> NSAttributedString {
+        let output = NSMutableAttributedString()
+        let lines = markdown.components(separatedBy: .newlines)
+
+        for rawLine in lines {
+            let parsed = parseMarkdownLine(rawLine, textColor: textColor)
+            let line = NSMutableAttributedString(string: parsed.text, attributes: parsed.attributes)
+            applyInlineMarkdown(to: line, textColor: textColor)
+            output.append(line)
+            output.append(NSAttributedString(string: "\n", attributes: parsed.attributes))
+        }
+
+        return output
+    }
+
+    private static func parseMarkdownLine(_ rawLine: String, textColor: UIColor) -> (text: String, attributes: [NSAttributedString.Key: Any]) {
+        var text = rawLine
+        let font: UIFont
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        paragraph.paragraphSpacing = 8
+
+        if text.hasPrefix("# ") {
+            text.removeFirst(2)
+            font = .systemFont(ofSize: 24, weight: .bold)
+            paragraph.paragraphSpacing = 10
+        } else if text.hasPrefix("## ") {
+            text.removeFirst(3)
+            font = .systemFont(ofSize: 19, weight: .semibold)
+            paragraph.paragraphSpacing = 8
+        } else if text.hasPrefix("### ") {
+            text.removeFirst(4)
+            font = .systemFont(ofSize: 16, weight: .semibold)
+        } else if text.hasPrefix("- ") {
+            text = "• " + String(text.dropFirst(2))
+            font = .systemFont(ofSize: 15, weight: .regular)
+        } else {
+            font = .systemFont(ofSize: 15, weight: .regular)
+        }
+
+        return (text, [
+            .font: font,
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private static func applyInlineMarkdown(to attributed: NSMutableAttributedString, textColor: UIColor) {
+        replaceMarkdown(pattern: "\\[([^\\]]+)\\]\\(([^\\)]+)\\)", in: attributed) { match, baseAttributes in
+            let label = match[1]
+            let urlString = match[2]
+            let replacement = NSMutableAttributedString(string: label, attributes: baseAttributes)
+            if let url = URL(string: urlString) {
+                replacement.addAttributes([
+                    .link: url,
+                    .foregroundColor: UIColor.systemBlue,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ], range: NSRange(location: 0, length: replacement.length))
+            }
+            return replacement
+        }
+
+        replaceMarkdown(pattern: "\\*\\*([^*]+)\\*\\*", in: attributed) { match, baseAttributes in
+            var attributes = baseAttributes
+            attributes[.font] = UIFont.systemFont(ofSize: 15, weight: .bold)
+            attributes[.foregroundColor] = textColor
+            return NSAttributedString(string: match[1], attributes: attributes)
+        }
+
+        replaceMarkdown(pattern: "`([^`]+)`", in: attributed) { match, baseAttributes in
+            var attributes = baseAttributes
+            attributes[.font] = UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+            attributes[.foregroundColor] = textColor
+            attributes[.backgroundColor] = UIColor.label.withAlphaComponent(0.08)
+            return NSAttributedString(string: match[1], attributes: attributes)
+        }
+    }
+
+    private static func replaceMarkdown(
+        pattern: String,
+        in attributed: NSMutableAttributedString,
+        replacement: ([String], [NSAttributedString.Key: Any]) -> NSAttributedString
+    ) {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        let source = attributed.string as NSString
+        let matches = regex.matches(in: attributed.string, range: NSRange(location: 0, length: source.length))
+
+        for result in matches.reversed() {
+            var captures: [String] = []
+            for index in 0..<result.numberOfRanges {
+                let range = result.range(at: index)
+                captures.append(range.location == NSNotFound ? "" : source.substring(with: range))
+            }
+            let baseAttributes = attributed.attributes(at: max(0, result.range.location), effectiveRange: nil)
+            attributed.replaceCharacters(in: result.range, with: replacement(captures, baseAttributes))
+        }
+    }
+}
+
 // MARK: - Drawing Canvas (fica por cima de tudo)
 
 class DrawingCanvas: PKCanvasView {
@@ -271,6 +495,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // Delete button
     private var activeDeleteButton: UIButton?
     private var activeHighlightButton: UIButton?
+    private var activeMarkdownColorButton: UIButton?
+    private weak var activeMarkdownColorTarget: MarkdownCardView?
     private var deleteTargetView: UIView?
 
     // Connections (setas entre elementos)
@@ -974,6 +1200,16 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 continue
             }
 
+            if let card = sibling as? MarkdownCardView {
+                if card.textView.isFirstResponder {
+                    card.textView.textColor = textColor
+                    card.textView.tintColor = textColor
+                } else {
+                    card.renderMarkdown(textColor: textColor)
+                }
+                continue
+            }
+
             // Post-its e blocos (têm subview UITextView)
             if let bg = sibling.backgroundColor, bg != .clear {
                 // Bloco de resumo (branco/escuro)
@@ -1032,6 +1268,47 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
         tap.require(toFail: doubleTap)
         view.addGestureRecognizer(tap)
+
+        if !(view is UITextView) {
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleElementPan(_:)))
+            pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue), NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)]
+            pan.maximumNumberOfTouches = 1
+            view.addGestureRecognizer(pan)
+        }
+    }
+
+    @objc private func handleElementPan(_ gesture: UIPanGestureRecognizer) {
+        guard let view = gesture.view, let container = containerView else { return }
+
+        switch gesture.state {
+        case .began:
+            hideDeleteButton()
+            hideConnectionPoints()
+            hideDirectionalButtons()
+            if !selectedViews.isEmpty || selectionBox != nil {
+                clearSelection()
+            }
+            bringElementToFront(view)
+            view.layer.shadowColor = UIColor.systemBlue.cgColor
+            view.layer.shadowOpacity = 0.45
+            view.layer.shadowRadius = 8
+            view.layer.shadowOffset = .zero
+
+        case .changed:
+            let t = gesture.translation(in: container)
+            guard t != .zero else { return }
+            view.center = CGPoint(x: view.center.x + t.x, y: view.center.y + t.y)
+            gesture.setTranslation(.zero, in: container)
+            updateAllConnections()
+
+        case .ended, .cancelled, .failed:
+            view.layer.shadowOpacity = 0
+            showSelectionUI(for: view)
+            saveProject()
+
+        default:
+            break
+        }
     }
 
     // MARK: - Highlight Scribble
@@ -1574,6 +1851,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             clearSelection()
         }
         showDeleteButton(for: element)
+        if let card = element as? MarkdownCardView {
+            showMarkdownCardColorButton(for: card)
+        } else {
+            hideMarkdownCardColorButton()
+        }
         showConnectionPoints(for: element)
         showDirectionalButtons(for: element)
         // Canvas vira first responder para capturar setas do teclado
@@ -1663,7 +1945,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     }
 
     private func hideDeleteButton() {
-        for btn in [activeDeleteButton, activeHighlightButton].compactMap({ $0 }) {
+        for btn in [activeDeleteButton, activeHighlightButton, activeMarkdownColorButton].compactMap({ $0 }) {
             UIView.animate(withDuration: 0.15, animations: {
                 btn.alpha = 0
                 btn.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
@@ -1673,7 +1955,72 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         }
         activeDeleteButton = nil
         activeHighlightButton = nil
+        activeMarkdownColorButton = nil
+        activeMarkdownColorTarget = nil
         deleteTargetView = nil
+    }
+
+    private func hideMarkdownCardColorButton() {
+        activeMarkdownColorButton?.removeFromSuperview()
+        activeMarkdownColorButton = nil
+        activeMarkdownColorTarget = nil
+    }
+
+    private func showMarkdownCardColorButton(for card: MarkdownCardView) {
+        hideMarkdownCardColorButton()
+        guard let container = containerView else { return }
+
+        activeMarkdownColorTarget = card
+
+        let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        let size: CGFloat = 36
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "paintpalette.fill", withConfiguration: config), for: .normal)
+        button.tintColor = .white
+        button.backgroundColor = UIColor.systemBlue
+        button.layer.cornerRadius = size / 2
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.3
+        button.layer.shadowRadius = 4
+        button.layer.shadowOffset = CGSize(width: 0, height: 2)
+        button.frame = CGRect(
+            x: card.frame.minX - size / 2 - 8,
+            y: card.frame.minY - size / 2 + 8,
+            width: size,
+            height: size
+        )
+        button.menu = UIMenu(children: MarkdownCardColor.palette.map { color in
+            UIAction(title: color.label, image: markdownColorSwatch(for: color)) { [weak self, weak card] _ in
+                guard let self, let card else { return }
+                card.applyColor(color)
+                self.showMarkdownCardColorButton(for: card)
+                self.saveProject()
+            }
+        })
+        button.showsMenuAsPrimaryAction = true
+        container.addSubview(button)
+        activeMarkdownColorButton = button
+
+        button.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+        button.alpha = 0
+        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
+            button.transform = .identity
+            button.alpha = 1
+        }
+    }
+
+    private func markdownColorSwatch(for color: MarkdownCardColor) -> UIImage {
+        let size = CGSize(width: 22, height: 22)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: 6)
+            color.uiColor.setFill()
+            path.fill()
+            UIColor.white.withAlphaComponent(0.55).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
     }
 
     @objc private func deleteElementTapped() {
@@ -2571,58 +2918,35 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     // MARK: - Post-it
 
-    func addPostIt(color: PostItColor = .yellow, at position: CGPoint? = nil) {
-        guard let container = containerView else { return }
+    func addMarkdownCard(color: MarkdownCardColor = .blue, at position: CGPoint? = nil) {
+        guard containerView != nil else { return }
         let pos = position ?? visibleCenter()
+        let card = makeMarkdownCard(
+            markdown: "",
+            color: color,
+            frame: CGRect(x: pos.x - 180, y: pos.y - 120, width: 360, height: 240)
+        )
 
-        let postIt = UIView()
-        postIt.frame = CGRect(x: pos.x - 100, y: pos.y - 100, width: 200, height: 200)
-        postIt.backgroundColor = color.uiColor
-        postIt.layer.cornerRadius = 4
-        postIt.layer.shadowColor = UIColor.black.cgColor
-        postIt.layer.shadowOpacity = 0.15
-        postIt.layer.shadowRadius = 4
-        postIt.layer.shadowOffset = CGSize(width: 2, height: 2)
-        postIt.isUserInteractionEnabled = true
+        addDragGestures(to: card)
+        addElementToCanvas(card)
+        allElementViews[UUID()] = card
 
-        // Rotação leve aleatória pra parecer natural
-        let randomAngle = CGFloat.random(in: -0.05...0.05)
-        postIt.transform = CGAffineTransform(rotationAngle: randomAngle)
-
-        // Texto dentro do post-it
-        let textView = NonZoomableTextView()
-        textView.canvasCoordinator = self
-
-        textView.text = ""
-        textView.font = handwritingFont
-        textView.textColor = postItTextColor
-        textView.backgroundColor = .clear
-        textView.isScrollEnabled = false
-        textView.textAlignment = .center
-        textView.frame = postIt.bounds.insetBy(dx: 12, dy: 12)
-        textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        textView.tintColor = postItTextColor
-        textView.dataDetectorTypes = []
-        textView.linkTextAttributes = [:]
-
-        // Placeholder
-        textView.text = "Toque para digitar"
-        textView.textColor = postItTextColor.withAlphaComponent(0.35)
-        textView.tag = 999
-        textView.delegate = self
-
-        postIt.addSubview(textView)
-
-        addDragGestures(to: postIt)
-        addElementToCanvas(postIt)
-
-        let item = CanvasPostItItem(text: "", position: pos, color: color)
-        allElementViews[item.id] = postIt
-
-        // Ativar edição imediata
         DispatchQueue.main.async {
-            textView.becomeFirstResponder()
+            card.textView.becomeFirstResponder()
         }
+    }
+
+    private func makeMarkdownCard(markdown: String, color: MarkdownCardColor, frame: CGRect) -> MarkdownCardView {
+        let card = MarkdownCardView(color: color)
+        card.frame = frame
+        card.textView.canvasCoordinator = self
+        card.textView.delegate = self
+        card.setMarkdown(markdown, textColor: currentTextColor)
+        return card
+    }
+
+    func addPostIt(color: PostItColor = .yellow, at position: CGPoint? = nil) {
+        addMarkdownCard(color: MarkdownCardColor(from: color), at: position)
     }
 
     // MARK: - Brain Dump → Mind Map
@@ -3132,6 +3456,16 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 continue
             }
 
+            if let card = sibling as? MarkdownCardView {
+                card.updateMarkdownFromEditor()
+                let text = card.rawMarkdown
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    elements.append(GeminiService.TextElement(index: index, text: text, type: "markdown"))
+                    index += 1
+                }
+                continue
+            }
+
             // Post-it (UIView com UITextView dentro)
             for sub in sibling.subviews {
                 if let tv = sub as? UITextView {
@@ -3168,6 +3502,19 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                         tv.textColor = currentTextColor
                         // Flash verde pra indicar que foi corrigido
                         flashGreen(tv)
+                    }
+                    index += 1
+                }
+                continue
+            }
+
+            if let card = sibling as? MarkdownCardView {
+                card.updateMarkdownFromEditor()
+                let text = card.rawMarkdown
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let corrected = corrections[index] {
+                        card.setMarkdown(corrected, textColor: currentTextColor)
+                        flashGreen(card)
                     }
                     index += 1
                 }
@@ -3335,6 +3682,13 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             if let tv = sibling as? UITextView {
                 let text = (tv.tag == Self.placeholderTag) ? "" : (tv.text ?? "")
                 elements.append(CanvasElement(id: elementId, type: .text, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
+                savedElementViews.append((sibling, elementId))
+                continue
+            }
+
+            if let card = sibling as? MarkdownCardView {
+                card.updateMarkdownFromEditor()
+                elements.append(CanvasElement(id: elementId, type: .markdownCard, text: card.rawMarkdown, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, cardColor: card.cardColor, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
                 savedElementViews.append((sibling, elementId))
                 continue
             }
@@ -3514,62 +3868,31 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 restoreVisualMarks(to: textView, from: element)
                 loadedViews.append(textView)
 
+            case .markdownCard:
+                let color = element.cardColor ?? .crystal
+                let card = makeMarkdownCard(
+                    markdown: element.text ?? "",
+                    color: color,
+                    frame: CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
+                )
+                addDragGestures(to: card)
+                addElementToCanvas(card)
+                _ = registerLoadedView(card, from: element)
+                restoreVisualMarks(to: card, from: element)
+                loadedViews.append(card)
+
             case .postit:
-                let color = element.color ?? .yellow
-                let postIt = UIView()
-                postIt.frame = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
-                postIt.backgroundColor = color.uiColor
-                postIt.layer.cornerRadius = 4
-                postIt.layer.shadowColor = UIColor.black.cgColor
-                postIt.layer.shadowOpacity = 0.15
-                postIt.layer.shadowRadius = 4
-                postIt.layer.shadowOffset = CGSize(width: 2, height: 2)
-                postIt.isUserInteractionEnabled = true
-                if let rot = element.rotation {
-                    postIt.transform = CGAffineTransform(rotationAngle: rot)
-                }
-
-                let textView = NonZoomableTextView()
-                textView.canvasCoordinator = self
-
-                textView.font = handwritingFont
-                textView.textColor = postItTextColor
-                textView.backgroundColor = .clear
-                textView.isScrollEnabled = false
-                textView.textAlignment = .center
-                textView.frame = postIt.bounds.insetBy(dx: 12, dy: 12)
-                textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                textView.tintColor = postItTextColor
-                textView.dataDetectorTypes = []
-                textView.linkTextAttributes = [:]
-                textView.delegate = self
-
-                if let text = element.text, !text.isEmpty {
-                    textView.text = text
-                    textView.textColor = postItTextColor
-                    textView.tag = 0
-                    // Auto-resize post-it para caber o texto
-                    let padding: CGFloat = 12
-                    let newSize = textView.sizeThatFits(CGSize(width: textView.frame.width, height: .greatestFiniteMagnitude))
-                    let neededHeight = newSize.height + padding * 2
-                    if neededHeight > postIt.frame.height {
-                        var f = postIt.frame
-                        f.size.height = neededHeight
-                        postIt.frame = f
-                        textView.frame = postIt.bounds.insetBy(dx: padding, dy: padding)
-                    }
-                } else {
-                    textView.text = "Toque para digitar"
-                    textView.textColor = postItTextColor.withAlphaComponent(0.35)
-                    textView.tag = Self.placeholderTag
-                }
-
-                postIt.addSubview(textView)
-                addDragGestures(to: postIt)
-                addElementToCanvas(postIt)
-                _ = registerLoadedView(postIt, from: element)
-                restoreVisualMarks(to: postIt, from: element)
-                loadedViews.append(postIt)
+                let color = element.color.map { MarkdownCardColor(from: $0) } ?? .amber
+                let card = makeMarkdownCard(
+                    markdown: element.text ?? "",
+                    color: color,
+                    frame: CGRect(x: element.x, y: element.y, width: max(element.width, 280), height: max(element.height, 220))
+                )
+                addDragGestures(to: card)
+                addElementToCanvas(card)
+                _ = registerLoadedView(card, from: element)
+                restoreVisualMarks(to: card, from: element)
+                loadedViews.append(card)
 
             case .image, .strokeGroup:
                 guard let filename = element.file,
@@ -3665,6 +3988,21 @@ extension PostItColor {
     }
 }
 
+extension MarkdownCardColor {
+    init(from postItColor: PostItColor) {
+        switch postItColor {
+        case .yellow:
+            self = .amber
+        case .green:
+            self = .green
+        case .pink:
+            self = .pink
+        case .blue, .purple:
+            self = .blue
+        }
+    }
+}
+
 // MARK: - UIGestureRecognizerDelegate
 
 extension CanvasCoordinator {
@@ -3683,6 +4021,11 @@ extension CanvasCoordinator: UITextViewDelegate {
     private static let placeholderTag = 999
 
     func textViewDidBeginEditing(_ textView: UITextView) {
+        if let card = markdownCard(containing: textView) {
+            card.beginMarkdownEditing(textColor: currentTextColor)
+            return
+        }
+
         if textView.tag == Self.placeholderTag {
             textView.text = ""
             let color = isInsidePostIt(textView) ? postItTextColor : currentTextColor
@@ -3692,6 +4035,21 @@ extension CanvasCoordinator: UITextViewDelegate {
     }
 
     func textViewDidChange(_ textView: UITextView) {
+        if let card = markdownCard(containing: textView) {
+            card.updateMarkdownFromEditor()
+            let fixedWidth = textView.frame.width
+            let newSize = textView.sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
+            let neededHeight = max(newSize.height + 36, 220)
+            if neededHeight > card.frame.height + 2 {
+                var frame = card.frame
+                frame.size.height = neededHeight
+                card.frame = frame
+                card.setNeedsLayout()
+                updateAllConnections()
+            }
+            return
+        }
+
         let fixedWidth = textView.frame.width
         let newSize = textView.sizeThatFits(CGSize(width: fixedWidth, height: .greatestFiniteMagnitude))
         let newHeight = max(newSize.height, 40)
@@ -3721,12 +4079,27 @@ extension CanvasCoordinator: UITextViewDelegate {
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
+        if let card = markdownCard(containing: textView) {
+            card.updateMarkdownFromEditor()
+            card.renderMarkdown(textColor: currentTextColor)
+            return
+        }
+
         if textView.text.isEmpty {
             textView.text = "Toque para digitar"
             let color = isInsidePostIt(textView) ? postItTextColor : currentTextColor
             textView.textColor = color.withAlphaComponent(0.35)
             textView.tag = Self.placeholderTag
         }
+    }
+
+    private func markdownCard(containing textView: UITextView) -> MarkdownCardView? {
+        var view = textView.superview
+        while let current = view {
+            if let card = current as? MarkdownCardView { return card }
+            view = current.superview
+        }
+        return nil
     }
 
     private func isInsidePostIt(_ view: UIView) -> Bool {

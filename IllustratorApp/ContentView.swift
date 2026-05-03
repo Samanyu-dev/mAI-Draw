@@ -12,7 +12,7 @@ struct ContentView: View {
     @State private var showPromptEditor = false
     @State private var errorMessage: String?
     @State private var showError = false
-    @State private var showPostItColors = false
+    @State private var showMarkdownCardColors = false
     @State private var isDrawingMode = true
     @State private var showPhotoPicker = false
     @State private var showBrainDump = false
@@ -90,9 +90,9 @@ struct ContentView: View {
             Button("") { coordinator?.addText() }
                 .keyboardShortcut("t", modifiers: .command)
                 .hidden()
-            // Cmd+P → Post-it (amarelo padrão)
-            Button("") { coordinator?.addPostIt() }
-                .keyboardShortcut("p", modifiers: .command)
+            // Cmd+M → Card Markdown Liquid Glass
+            Button("") { coordinator?.addMarkdownCard() }
+                .keyboardShortcut("m", modifiers: .command)
                 .hidden()
             // Cmd+R → Gravar/Parar
             Button("") {
@@ -178,12 +178,12 @@ struct ContentView: View {
                         coordinator?.addText()
                     }
 
-                    // Post-it
-                    phoneToolButton(icon: "note.text") {
-                        showPostItColors.toggle()
+                    // Card Markdown
+                    phoneToolButton(icon: "doc.richtext") {
+                        showMarkdownCardColors.toggle()
                     }
-                    .popover(isPresented: $showPostItColors) {
-                        postItColorPicker
+                    .popover(isPresented: $showMarkdownCardColors) {
+                        markdownCardColorPicker
                     }
 
                     // Foto
@@ -334,12 +334,12 @@ struct ContentView: View {
                     coordinator?.addText()
                 }
 
-                // Post-it
-                toolButton(icon: "note.text", tip: "Post-it") {
-                    showPostItColors.toggle()
+                // Card Markdown
+                toolButton(icon: "doc.richtext", tip: "Markdown") {
+                    showMarkdownCardColors.toggle()
                 }
-                .popover(isPresented: $showPostItColors) {
-                    postItColorPicker
+                .popover(isPresented: $showMarkdownCardColors) {
+                    markdownCardColorPicker
                 }
 
                 // Foto
@@ -443,18 +443,23 @@ struct ContentView: View {
             .frame(width: 36, height: 36)
     }
 
-    // MARK: - Post-it Color Picker
+    // MARK: - Markdown Card Color Picker
 
-    private var postItColorPicker: some View {
+    private var markdownCardColorPicker: some View {
         HStack(spacing: 12) {
-            ForEach(Array(PostItColor.allCases.enumerated()), id: \.offset) { _, color in
+            ForEach(Array(MarkdownCardColor.palette.enumerated()), id: \.offset) { _, color in
                 Button {
-                    coordinator?.addPostIt(color: color)
-                    showPostItColors = false
+                    coordinator?.addMarkdownCard(color: color)
+                    showMarkdownCardColors = false
                 } label: {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: 10)
                         .fill(Color(color.uiColor))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 42, height: 42)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.35), lineWidth: 1)
+                        )
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
                         .shadow(radius: 2)
                 }
             }
