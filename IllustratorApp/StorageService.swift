@@ -40,6 +40,10 @@ struct StorageService {
     // MARK: - Save
 
     static func save(document: CanvasDocument, drawing: PKDrawing, thumbnail: UIImage?) {
+        save(document: document, drawingData: drawing.dataRepresentation(), thumbnail: thumbnail)
+    }
+
+    static func save(document: CanvasDocument, drawingData: Data, thumbnail: UIImage?) {
         let folder = canvasURL(for: document.id)
 
         // JSON
@@ -48,7 +52,6 @@ struct StorageService {
         }
 
         // PKDrawing
-        let drawingData = drawing.dataRepresentation()
         try? drawingData.write(to: folder.appendingPathComponent("drawing.data"))
 
         // Thumbnail

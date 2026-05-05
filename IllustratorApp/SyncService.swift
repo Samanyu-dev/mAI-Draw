@@ -88,6 +88,7 @@ struct SyncService {
                     height: row.height,
                     color: row.metadata?["color"].flatMap { PostItColor(rawValue: $0) },
                     cardColor: row.metadata?["cardColor"].flatMap { MarkdownCardColor(rawValue: $0) },
+                    page: decodePageData(row.metadata?["pageData"]),
                     rotation: row.metadata?["rotation"].flatMap { CGFloat(Double($0) ?? 0) },
                     file: row.metadata?["file"],
                     duration: row.metadata?["duration"].flatMap { Double($0) },
@@ -159,7 +160,7 @@ struct SyncService {
         } catch { /* No thumbnail, ok */ }
 
         // Media files (images, audio)
-        for element in elements {
+        for element in flattenElements(elements) {
             guard let file = element.file else { continue }
             let bucket = element.type == .audio ? "audio" : "images"
             let filePath = "\(userId)/\(projectId)/\(file)"
@@ -241,6 +242,7 @@ struct SyncService {
             if let elementId = element.id { meta["elementId"] = elementId }
             if let color = element.color { meta["color"] = color.rawValue }
             if let cardColor = element.cardColor { meta["cardColor"] = cardColor.rawValue }
+            if let page = element.page, let encoded = encodePageData(page) { meta["pageData"] = encoded }
             if let file = element.file { meta["file"] = file }
             if let rotation = element.rotation { meta["rotation"] = "\(rotation)" }
             if let scale = element.scale { meta["scale"] = "\(scale)" }
@@ -281,7 +283,7 @@ struct SyncService {
 
         // 4. Upload media files (images, audio) from local cache
         let folder = StorageService.canvasURL(for: doc.id)
-        for element in doc.elements {
+        for element in flattenElements(doc.elements) {
             guard let file = element.file else { continue }
             let fileURL = folder.appendingPathComponent(file)
             guard let fileData = try? Data(contentsOf: fileURL) else { continue }
@@ -390,6 +392,37 @@ struct SyncService {
         } catch {
             print("[Sync] Upload file error (\(bucket)/\(path)): \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Nested Page Helpers
+
+    private static func encodePageData(_ page: CanvasPageData) -> String? {
+        guard let data = try? JSONEncoder.withDates.encode(page) else { return nil }
+        return data.base64EncodedString()
+    }
+
+    private static func decodePageData(_ raw: String?) -> CanvasPageData? {
+        guard let raw else { return nil }
+        if let data = Data(base64Encoded: raw),
+           let page = try? JSONDecoder.withDates.decode(CanvasPageData.self, from: data) {
+            return page
+        }
+        if let data = raw.data(using: .utf8),
+           let page = try? JSONDecoder.withDates.decode(CanvasPageData.self, from: data) {
+            return page
+        }
+        return nil
+    }
+
+    private static func flattenElements(_ elements: [CanvasElement]) -> [CanvasElement] {
+        var result: [CanvasElement] = []
+        for element in elements {
+            result.append(element)
+            if let page = element.page {
+                result.append(contentsOf: flattenElements(page.elements))
+            }
+        }
+        return result
     }
 
     // MARK: - Thumbnail URL

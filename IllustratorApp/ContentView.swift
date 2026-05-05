@@ -94,6 +94,10 @@ struct ContentView: View {
             Button("") { coordinator?.addMarkdownCard() }
                 .keyboardShortcut("m", modifiers: .command)
                 .hidden()
+            // Cmd+P → Página interna do texto selecionado
+            Button("") { coordinator?.openPageFromSelectedText() }
+                .keyboardShortcut("p", modifiers: .command)
+                .hidden()
             // Cmd+R → Gravar/Parar
             Button("") {
                 if state.isRecording {
@@ -471,8 +475,8 @@ struct ContentView: View {
 
     private func illustrate() {
         guard let coord = coordinator else { return }
-        guard let capturedImage = coord.captureCanvas() else {
-            errorMessage = "Canvas vazio — desenhe algo primeiro!"
+        guard let capturedImage = coord.captureVisibleCanvasForIllustration() else {
+            errorMessage = "Nada visível no canvas — enquadre o que quer ilustrar primeiro!"
             showError = true
             return
         }
@@ -482,7 +486,7 @@ struct ContentView: View {
         Task {
             do {
                 let result = try await GeminiService.illustrate(image: capturedImage, prompt: state.prompt)
-                coord.overlayResult(result)
+                coord.overlayResult(result.paddedToMatchAspectRatio(of: capturedImage))
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -530,13 +534,13 @@ struct ContentView: View {
         }
     }
 
-    private func generateYouTubeSummary(from text: String, layout: MindMapLayout, customPrompt: String) {
+    private func generateYouTubeSummary(from input: String, layout: MindMapLayout, customPrompt: String) {
         guard let coord = coordinator else { return }
         state.isProcessing = true
 
         Task {
             do {
-                let result = try await GeminiService.summarizeTranscript(text, customPrompt: customPrompt)
+                let result = try await GeminiService.summarizeYouTubeInput(input, customPrompt: customPrompt)
                 coord.addSummaryBlock(text: result.summary)
                 coord.createMindMap(from: result.mindMap, layout: layout)
             } catch {
@@ -596,6 +600,38 @@ struct PromptEditorView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+
+private extension UIImage {
+    func paddedToMatchAspectRatio(of referenceImage: UIImage) -> UIImage {
+        guard size.width > 0, size.height > 0, referenceImage.size.width > 0, referenceImage.size.height > 0 else {
+            return self
+        }
+
+        let targetAspect = referenceImage.size.width / referenceImage.size.height
+        let currentAspect = size.width / size.height
+        guard abs(targetAspect - currentAspect) > 0.01 else { return self }
+
+        let canvasSize: CGSize
+        if currentAspect > targetAspect {
+            canvasSize = CGSize(width: size.width, height: size.width / targetAspect)
+        } else {
+            canvasSize = CGSize(width: size.height * targetAspect, height: size.height)
+        }
+
+        let origin = CGPoint(
+            x: (canvasSize.width - size.width) / 2,
+            y: (canvasSize.height - size.height) / 2
+        )
+
+        let renderer = UIGraphicsImageRenderer(size: canvasSize)
+        return renderer.image { _ in
+            UIColor.white.setFill()
+            UIRectFill(CGRect(origin: .zero, size: canvasSize))
+            draw(in: CGRect(origin: origin, size: size))
         }
     }
 }

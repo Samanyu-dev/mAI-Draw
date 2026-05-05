@@ -119,6 +119,7 @@ struct PhoneContentView: View {
             do {
                 let result = try await GeminiService.generateMindMap(from: text, customPrompt: customPrompt)
                 mindMapResult = result
+                summaryText = result.summary
                 saveProject()
             } catch {
                 errorMessage = error.localizedDescription
@@ -128,11 +129,11 @@ struct PhoneContentView: View {
         }
     }
 
-    private func generateYouTubeSummary(from text: String, layout: MindMapLayout, customPrompt: String) {
+    private func generateYouTubeSummary(from input: String, layout: MindMapLayout, customPrompt: String) {
         isProcessing = true
         Task {
             do {
-                let result = try await GeminiService.summarizeTranscript(text, customPrompt: customPrompt)
+                let result = try await GeminiService.summarizeYouTubeInput(input, customPrompt: customPrompt)
                 summaryText = result.summary
                 mindMapResult = result.mindMap
                 saveProject()

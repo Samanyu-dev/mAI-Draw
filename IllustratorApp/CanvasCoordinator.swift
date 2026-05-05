@@ -220,8 +220,21 @@ final class MarkdownCardView: UIView {
     private static func renderedMarkdown(from markdown: String, textColor: UIColor) -> NSAttributedString {
         let output = NSMutableAttributedString()
         let lines = markdown.components(separatedBy: .newlines)
+        var isCodeBlock = false
 
         for rawLine in lines {
+            if rawLine.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                isCodeBlock.toggle()
+                continue
+            }
+
+            if isCodeBlock {
+                let parsed = parseCodeBlockLine(rawLine, textColor: textColor)
+                output.append(NSAttributedString(string: parsed.text, attributes: parsed.attributes))
+                output.append(NSAttributedString(string: "\n", attributes: parsed.attributes))
+                continue
+            }
+
             let parsed = parseMarkdownLine(rawLine, textColor: textColor)
             let line = NSMutableAttributedString(string: parsed.text, attributes: parsed.attributes)
             applyInlineMarkdown(to: line, textColor: textColor)
@@ -235,31 +248,79 @@ final class MarkdownCardView: UIView {
     private static func parseMarkdownLine(_ rawLine: String, textColor: UIColor) -> (text: String, attributes: [NSAttributedString.Key: Any]) {
         var text = rawLine
         let font: UIFont
+        var lineColor = textColor
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 4
-        paragraph.paragraphSpacing = 8
+        paragraph.lineSpacing = 2
+        paragraph.paragraphSpacing = 6
+
+        if text.trimmingCharacters(in: .whitespaces).isEmpty {
+            font = .systemFont(ofSize: 4, weight: .regular)
+            paragraph.lineSpacing = 0
+            paragraph.paragraphSpacing = 7
+            return (text, [
+                .font: font,
+                .foregroundColor: textColor,
+                .paragraphStyle: paragraph
+            ])
+        }
 
         if text.hasPrefix("# ") {
             text.removeFirst(2)
             font = .systemFont(ofSize: 24, weight: .bold)
-            paragraph.paragraphSpacing = 10
+            paragraph.lineSpacing = 1
+            paragraph.paragraphSpacing = 12
         } else if text.hasPrefix("## ") {
             text.removeFirst(3)
             font = .systemFont(ofSize: 19, weight: .semibold)
-            paragraph.paragraphSpacing = 8
+            paragraph.lineSpacing = 1
+            paragraph.paragraphSpacing = 9
         } else if text.hasPrefix("### ") {
             text.removeFirst(4)
             font = .systemFont(ofSize: 16, weight: .semibold)
+            paragraph.paragraphSpacing = 7
+        } else if text.hasPrefix("> ") {
+            text = "“ " + String(text.dropFirst(2))
+            font = italicSystemFont(ofSize: 15, weight: .regular)
+            lineColor = textColor.withAlphaComponent(0.82)
+            paragraph.firstLineHeadIndent = 12
+            paragraph.headIndent = 12
+            paragraph.lineSpacing = 2
+            paragraph.paragraphSpacing = 10
         } else if text.hasPrefix("- ") {
             text = "• " + String(text.dropFirst(2))
             font = .systemFont(ofSize: 15, weight: .regular)
+            paragraph.lineSpacing = 1.5
+            paragraph.paragraphSpacing = 5
+            paragraph.headIndent = 16
+        } else if let range = text.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
+            let marker = String(text[range]).trimmingCharacters(in: .whitespaces)
+            text = "\(marker) \(String(text[range.upperBound...]))"
+            font = .systemFont(ofSize: 15, weight: .regular)
+            paragraph.lineSpacing = 1.5
+            paragraph.paragraphSpacing = 5
+            paragraph.headIndent = 20
         } else {
             font = .systemFont(ofSize: 15, weight: .regular)
+            paragraph.lineSpacing = 1.5
+            paragraph.paragraphSpacing = 6
         }
 
         return (text, [
             .font: font,
+            .foregroundColor: lineColor,
+            .paragraphStyle: paragraph
+        ])
+    }
+
+    private static func parseCodeBlockLine(_ rawLine: String, textColor: UIColor) -> (text: String, attributes: [NSAttributedString.Key: Any]) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 1
+        paragraph.paragraphSpacing = 5
+
+        return (rawLine.isEmpty ? "  " : "  \(rawLine)", [
+            .font: UIFont.monospacedSystemFont(ofSize: 14, weight: .regular),
             .foregroundColor: textColor,
+            .backgroundColor: UIColor.label.withAlphaComponent(0.08),
             .paragraphStyle: paragraph
         ])
     }
@@ -281,18 +342,42 @@ final class MarkdownCardView: UIView {
 
         replaceMarkdown(pattern: "\\*\\*([^*]+)\\*\\*", in: attributed) { match, baseAttributes in
             var attributes = baseAttributes
-            attributes[.font] = UIFont.systemFont(ofSize: 15, weight: .bold)
+            attributes[.font] = markdownFont(from: baseAttributes, adding: .traitBold, fallbackWeight: .bold)
+            attributes[.foregroundColor] = textColor
+            return NSAttributedString(string: match[1], attributes: attributes)
+        }
+
+        replaceMarkdown(pattern: "(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)", in: attributed) { match, baseAttributes in
+            var attributes = baseAttributes
+            attributes[.font] = markdownFont(from: baseAttributes, adding: .traitItalic, fallbackWeight: .regular)
             attributes[.foregroundColor] = textColor
             return NSAttributedString(string: match[1], attributes: attributes)
         }
 
         replaceMarkdown(pattern: "`([^`]+)`", in: attributed) { match, baseAttributes in
             var attributes = baseAttributes
-            attributes[.font] = UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+            let baseFont = baseAttributes[.font] as? UIFont
+            attributes[.font] = UIFont.monospacedSystemFont(ofSize: max(13, (baseFont?.pointSize ?? 15) - 1), weight: .regular)
             attributes[.foregroundColor] = textColor
             attributes[.backgroundColor] = UIColor.label.withAlphaComponent(0.08)
             return NSAttributedString(string: match[1], attributes: attributes)
         }
+    }
+
+    private static func italicSystemFont(ofSize size: CGFloat, weight: UIFont.Weight) -> UIFont {
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withSymbolicTraits([.traitItalic]) else { return base }
+        return UIFont(descriptor: descriptor, size: size)
+    }
+
+    private static func markdownFont(from attributes: [NSAttributedString.Key: Any], adding trait: UIFontDescriptor.SymbolicTraits, fallbackWeight: UIFont.Weight) -> UIFont {
+        let base = attributes[.font] as? UIFont ?? .systemFont(ofSize: 15, weight: .regular)
+        var traits = base.fontDescriptor.symbolicTraits
+        traits.formUnion(trait)
+        guard let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else {
+            return .systemFont(ofSize: base.pointSize, weight: fallbackWeight)
+        }
+        return UIFont(descriptor: descriptor, size: base.pointSize)
     }
 
     private static func replaceMarkdown(
@@ -457,6 +542,12 @@ class SelectionBoxView: UIView {
     }
 }
 
+private struct PageNavigationContext {
+    let ownerElementId: String
+    var parentPage: CanvasPageData
+    let title: String
+}
+
 // MARK: - Coordinator
 
 class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, UIDropInteractionDelegate, AVAudioRecorderDelegate, UIGestureRecognizerDelegate {
@@ -472,6 +563,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private var selectionMovePan: UIPanGestureRecognizer?
     private var activeDragElement: UIView?
     private var autoSaveTimer: Timer?
+    private var pageStack: [PageNavigationContext] = []
 
     // Long press lasso
     private var inlineLassoPath: UIBezierPath?
@@ -497,6 +589,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private var activeHighlightButton: UIButton?
     private var activeMarkdownColorButton: UIButton?
     private weak var activeMarkdownColorTarget: MarkdownCardView?
+    private var activeTextPageButton: UIButton?
+    private var activePageBackButton: UIButton?
     private var deleteTargetView: UIView?
 
     // Connections (setas entre elementos)
@@ -513,6 +607,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     private static var audioURLKey: UInt8 = 0
     private static var audioIDKey: UInt8 = 0
     private static var elementIDKey: UInt8 = 0
+    private static var elementPageDataKey: UInt8 = 0
     private static let connectionLayerName = "CanvasConnectionLayer"
 
     private let canvasSize = CGSize(width: 16384, height: 16384)
@@ -660,10 +755,10 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         scroll.setContentOffset(target, animated: animated)
     }
 
-    private func centerViewportOnLoadedContent(from doc: CanvasDocument) {
+    private func centerViewportOnPage(_ page: CanvasPageData) {
         var bounds = CGRect.null
 
-        for element in doc.elements {
+        for element in page.elements {
             let frame = CGRect(x: element.x, y: element.y, width: element.width, height: element.height)
             bounds = bounds.union(frame)
         }
@@ -712,6 +807,107 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             return uuid
         }
         return UUID()
+    }
+
+    private func pageData(for view: UIView) -> CanvasPageData? {
+        objc_getAssociatedObject(view, &Self.elementPageDataKey) as? CanvasPageData
+    }
+
+    private func setPageData(_ page: CanvasPageData?, for view: UIView) {
+        if let page {
+            objc_setAssociatedObject(view, &Self.elementPageDataKey, page as Any, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        } else {
+            objc_setAssociatedObject(view, &Self.elementPageDataKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
+
+    private func textViewHasPage(_ textView: UITextView) -> Bool {
+        guard let page = pageData(for: textView) else { return false }
+        return pageHasContent(page)
+    }
+
+    private func displayColor(for textView: UITextView) -> UIColor {
+        textViewHasPage(textView) ? .systemBlue : currentTextColor
+    }
+
+    private func applyPageVisual(to textView: UITextView) {
+        let color = displayColor(for: textView)
+        textView.tintColor = color
+        textView.textColor = (textView.tag == Self.placeholderTag) ? color.withAlphaComponent(0.35) : color
+    }
+
+    private func plainTextView(from view: UIView?) -> NonZoomableTextView? {
+        guard let textView = view as? NonZoomableTextView else { return nil }
+        if markdownCard(containing: textView) != nil { return nil }
+        if isInsidePostIt(textView) { return nil }
+        return textView
+    }
+
+    private func selectedOrEditingPlainTextView() -> NonZoomableTextView? {
+        if let target = plainTextView(from: deleteTargetView) {
+            return target
+        }
+        guard let container = containerView else { return nil }
+        return plainTextView(from: firstResponderElement(in: container))
+    }
+
+    private func pageTitle(for textView: UITextView) -> String {
+        let raw = (textView.tag == Self.placeholderTag) ? "" : (textView.text ?? "")
+        let collapsed = raw
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return "Página" }
+        return String(collapsed.prefix(32))
+    }
+
+    private func updatePage(_ childPage: CanvasPageData, for ownerElementId: String, in parentPage: inout CanvasPageData) {
+        guard let index = parentPage.elements.firstIndex(where: { $0.id == ownerElementId }) else { return }
+        parentPage.elements[index].page = pageHasContent(childPage) ? childPage : nil
+    }
+
+    private func pageHasContent(_ page: CanvasPageData) -> Bool {
+        if page.elements.contains(where: elementHasContent(_:)) {
+            return true
+        }
+        if let drawingData = page.drawingData,
+           let drawing = try? PKDrawing(data: drawingData),
+           !drawing.strokes.isEmpty {
+            return true
+        }
+        return false
+    }
+
+    private func elementHasContent(_ element: CanvasElement) -> Bool {
+        if let childPage = element.page, pageHasContent(childPage) {
+            return true
+        }
+
+        switch element.type {
+        case .text, .postit, .markdownCard:
+            let text = element.text ?? ""
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .image, .audio, .strokeGroup:
+            return element.file != nil
+        }
+    }
+
+    private func rootPageData(merging currentPage: CanvasPageData) -> CanvasPageData {
+        var childPage = currentPage
+        for context in pageStack.reversed() {
+            var parentPage = context.parentPage
+            updatePage(childPage, for: context.ownerElementId, in: &parentPage)
+            childPage = parentPage
+        }
+        return childPage
+    }
+
+    private func currentPageMediaPrefix() -> String {
+        guard !pageStack.isEmpty else { return "root" }
+        let tokens = pageStack.map { context -> String in
+            let clean = context.ownerElementId.filter { $0.isLetter || $0.isNumber }
+            return String(clean.suffix(10))
+        }
+        return "page_" + tokens.joined(separator: "_")
     }
 
     // MARK: - Drawing
@@ -1195,8 +1391,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
             // Textos livres (sem background)
             if let tv = sibling as? UITextView {
-                tv.textColor = (tv.tag == 999) ? textColor.withAlphaComponent(0.35) : textColor
-                tv.tintColor = textColor
+                let color = textViewHasPage(tv) ? UIColor.systemBlue : textColor
+                tv.textColor = (tv.tag == 999) ? color.withAlphaComponent(0.35) : color
+                tv.tintColor = color
                 continue
             }
 
@@ -1423,7 +1620,6 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         case horizontal
         case doubleHorizontal
         case slash
-        case loop
     }
 
     func addScribbleHighlight(to view: UIView, color: UIColor) {
@@ -1475,8 +1671,6 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             drawHorizontalCompletion(path: path, in: rect, lines: 2)
         case .slash:
             drawSlashCompletion(path: path, in: rect)
-        case .loop:
-            drawLoopCompletion(path: path, in: rect)
         }
 
         let layer = CAShapeLayer()
@@ -1542,29 +1736,6 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         drawHumanCompletionPolyline(path: path, points: points, jitter: 5.5, passes: 2)
     }
 
-    private func drawLoopCompletion(path: UIBezierPath, in rect: CGRect) {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let rx = rect.width * 0.46
-        let ry = rect.height * 0.38
-        let steps = 42
-
-        for pass in 0..<3 {
-            var points: [CGPoint] = []
-            let passOffset = CGFloat(pass) * 0.12
-            for i in 0...steps {
-                let t = CGFloat(i) / CGFloat(steps)
-                let angle = t * .pi * 2.08 + passOffset + CGFloat.random(in: -0.02...0.02)
-                let wobble = 1 + CGFloat.random(in: -0.055...0.055)
-                points.append(
-                    CGPoint(
-                        x: center.x + cos(angle) * rx * wobble + CGFloat.random(in: -4...4),
-                        y: center.y + sin(angle) * ry * wobble + CGFloat.random(in: -4...4)
-                    )
-                )
-            }
-            appendSmoothCompletionStroke(points, to: path)
-        }
-    }
 
     private func drawHumanCompletionStroke(
         path: UIBezierPath,
@@ -1821,6 +1992,90 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         return true
     }
 
+    func openPageFromSelectedText() {
+        guard let container = containerView,
+              let canvas = canvasView,
+              let textView = selectedOrEditingPlainTextView() else { return }
+
+        openPage(from: textView, container: container, canvas: canvas)
+    }
+
+    private func openPage(from textView: NonZoomableTextView) {
+        guard let container = containerView, let canvas = canvasView else { return }
+        openPage(from: textView, container: container, canvas: canvas)
+    }
+
+    private func openPage(from textView: NonZoomableTextView, container: UIView, canvas: PKCanvasView) {
+        textView.resignBlockedUntil = .distantPast
+        textView.resignFirstResponder()
+
+        let ownerId = ensureElementID(for: textView)
+        let childPage = pageData(for: textView) ?? .blank
+        setPageData(childPage, for: textView)
+        applyPageVisual(to: textView)
+
+        let parentPage = collectPageData(container: container, canvas: canvas, mediaPrefix: currentPageMediaPrefix())
+        pageStack.append(PageNavigationContext(ownerElementId: ownerId, parentPage: parentPage, title: pageTitle(for: textView)))
+
+        hideDeleteButton()
+        hideConnectionPoints()
+        hideDirectionalButtons()
+        clearSelection()
+        restorePage(childPage, centerOnContent: false)
+        refreshPageNavigationControls()
+        saveProject()
+    }
+
+    @objc private func closeCurrentPage() {
+        guard let container = containerView,
+              let canvas = canvasView,
+              let context = pageStack.last else { return }
+
+        let mediaPrefix = currentPageMediaPrefix()
+        let currentPage = collectPageData(container: container, canvas: canvas, mediaPrefix: mediaPrefix)
+        pageStack.removeLast()
+        var parentContext = context
+        updatePage(currentPage, for: parentContext.ownerElementId, in: &parentContext.parentPage)
+
+        restorePage(parentContext.parentPage, centerOnContent: true)
+        refreshPageNavigationControls()
+        saveProject()
+    }
+
+    private func refreshPageNavigationControls() {
+        activePageBackButton?.removeFromSuperview()
+        activePageBackButton = nil
+
+        guard !pageStack.isEmpty else { return }
+        guard let host = scrollView?.superview else {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshPageNavigationControls()
+            }
+            return
+        }
+
+        let button = UIButton(type: .system)
+        var config = UIButton.Configuration.filled()
+        config.baseBackgroundColor = UIColor.systemBlue
+        config.baseForegroundColor = .white
+        config.cornerStyle = .capsule
+        config.image = UIImage(systemName: "chevron.left")
+        config.imagePadding = 6
+        config.title = pageStack.count == 1 ? "Canvas principal" : "Voltar"
+        config.contentInsets = NSDirectionalEdgeInsets(top: 9, leading: 12, bottom: 9, trailing: 16)
+        button.configuration = config
+        button.addTarget(self, action: #selector(closeCurrentPage), for: .touchUpInside)
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.22
+        button.layer.shadowRadius = 8
+        button.layer.shadowOffset = CGSize(width: 0, height: 3)
+        button.sizeToFit()
+        let safeTop = host.safeAreaInsets.top
+        button.frame.origin = CGPoint(x: 16, y: max(68, safeTop + 58))
+        host.addSubview(button)
+        activePageBackButton = button
+    }
+
     @objc private func handleElementDoubleTap(_ gesture: UITapGestureRecognizer) {
         guard let view = gesture.view else { return }
         guard isTextElement(view) else { return }
@@ -1855,6 +2110,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             showMarkdownCardColorButton(for: card)
         } else {
             hideMarkdownCardColorButton()
+        }
+        if let textView = plainTextView(from: element) {
+            showTextPageButton(for: textView)
+        } else {
+            hideTextPageButton()
         }
         showConnectionPoints(for: element)
         showDirectionalButtons(for: element)
@@ -1945,7 +2205,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     }
 
     private func hideDeleteButton() {
-        for btn in [activeDeleteButton, activeHighlightButton, activeMarkdownColorButton].compactMap({ $0 }) {
+        for btn in [activeDeleteButton, activeHighlightButton, activeMarkdownColorButton, activeTextPageButton].compactMap({ $0 }) {
             UIView.animate(withDuration: 0.15, animations: {
                 btn.alpha = 0
                 btn.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
@@ -1957,7 +2217,50 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         activeHighlightButton = nil
         activeMarkdownColorButton = nil
         activeMarkdownColorTarget = nil
+        activeTextPageButton = nil
         deleteTargetView = nil
+    }
+
+    private func hideTextPageButton() {
+        activeTextPageButton?.removeFromSuperview()
+        activeTextPageButton = nil
+    }
+
+    private func showTextPageButton(for textView: NonZoomableTextView) {
+        hideTextPageButton()
+        guard let container = containerView else { return }
+
+        let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        let size: CGFloat = 36
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "doc.badge.plus", withConfiguration: config), for: .normal)
+        button.tintColor = .white
+        button.backgroundColor = UIColor.systemBlue
+        button.layer.cornerRadius = size / 2
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.3
+        button.layer.shadowRadius = 4
+        button.layer.shadowOffset = CGSize(width: 0, height: 2)
+        button.frame = CGRect(
+            x: textView.frame.minX - size / 2 - 8,
+            y: textView.frame.minY - size / 2 + 8,
+            width: size,
+            height: size
+        )
+        button.addTarget(self, action: #selector(textPageButtonTapped), for: .touchUpInside)
+        container.addSubview(button)
+        activeTextPageButton = button
+
+        button.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+        button.alpha = 0
+        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
+            button.transform = .identity
+            button.alpha = 1
+        }
+    }
+
+    @objc private func textPageButtonTapped() {
+        openPageFromSelectedText()
     }
 
     private func hideMarkdownCardColorButton() {
@@ -2838,82 +3141,108 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         }
     }
 
-    // MARK: - Summary Block (YouTube)
+    // MARK: - Summary Markdown Card
 
     func addSummaryBlock(text: String) {
-        guard let container = containerView else { return }
         let center = visibleCenter()
-        // Posicionar bem à esquerda do centro (mapa mental ficará à direita)
-        let pos = CGPoint(x: center.x - 900, y: center.y)
+        let markdown = formattedSummaryMarkdown(title: "Resumo", summary: text)
+        addMarkdownSummaryCard(markdown: markdown, at: CGPoint(x: center.x - 900, y: center.y))
+    }
 
-        let blockWidth: CGFloat = 400
-        let headerHeight: CGFloat = 50 // título + separador
-        let padding: CGFloat = 12
+    private func addMarkdownSummaryCard(markdown: String, at position: CGPoint) {
+        guard containerView != nil else { return }
+        let width: CGFloat = 460
+        let height = estimatedMarkdownCardHeight(for: markdown)
+        let card = makeMarkdownCard(
+            markdown: markdown,
+            color: .crystal,
+            frame: CGRect(x: position.x - width / 2, y: position.y - height / 2, width: width, height: height)
+        )
 
-        // Calcular altura necessária para o texto
-        let textWidth = blockWidth - (padding * 2)
-        let tempTextView = UITextView()
-        tempTextView.text = text
-        tempTextView.font = .systemFont(ofSize: 14)
-        let textSize = tempTextView.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude))
-        let textHeight = ceil(textSize.height) + 16 // margem extra
-        let totalHeight = headerHeight + textHeight + padding
+        addDragGestures(to: card)
+        addElementToCanvas(card)
+        allElementViews[UUID()] = card
 
-        let block = UIView()
-        block.frame = CGRect(x: pos.x - blockWidth / 2, y: pos.y - totalHeight / 2, width: blockWidth, height: totalHeight)
-        block.backgroundColor = UIColor.systemBackground
-        block.layer.cornerRadius = 12
-        block.layer.borderWidth = 1
-        block.layer.borderColor = UIColor.separator.cgColor
-        block.layer.shadowColor = UIColor.black.cgColor
-        block.layer.shadowOpacity = 0.1
-        block.layer.shadowRadius = 8
-        block.layer.shadowOffset = CGSize(width: 0, height: 4)
-        block.isUserInteractionEnabled = true
-
-        // Ícone + título
-        let headerLabel = UILabel()
-        headerLabel.text = "  Resumo do Vídeo"
-        headerLabel.font = .systemFont(ofSize: 16, weight: .bold)
-        headerLabel.textColor = .label
-        headerLabel.frame = CGRect(x: 16, y: 12, width: blockWidth - 32, height: 28)
-        block.addSubview(headerLabel)
-
-        // Separador
-        let separator = UIView()
-        separator.frame = CGRect(x: 16, y: 44, width: blockWidth - 32, height: 1)
-        separator.backgroundColor = .separator
-        block.addSubview(separator)
-
-        // Texto do resumo
-        let textView = NonZoomableTextView()
-        textView.canvasCoordinator = self
-
-        textView.text = text
-        textView.font = .systemFont(ofSize: 14)
-        textView.textColor = .label
-        textView.backgroundColor = .clear
-        textView.isScrollEnabled = false
-        textView.isEditable = true
-        textView.frame = CGRect(x: padding, y: headerHeight, width: textWidth, height: textHeight)
-        textView.tintColor = currentTextColor
-        textView.dataDetectorTypes = []
-        textView.linkTextAttributes = [:]
-        textView.tag = 0
-        textView.delegate = self
-        block.addSubview(textView)
-
-        addDragGestures(to: block)
-        addElementToCanvas(block)
-        allElementViews[UUID()] = block
-
-        // Animação de entrada
-        block.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-        block.alpha = 0
-        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.5) {
-            block.transform = .identity
-            block.alpha = 1
+        card.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        card.alpha = 0
+        UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0.45) {
+            card.transform = .identity
+            card.alpha = 1
         }
+    }
+
+    private func formattedSummaryMarkdown(title: String, summary: String) -> String {
+        let trimmed = normalizeGeneratedSummaryMarkdown(summary)
+        guard !trimmed.isEmpty else { return "# \(title)" }
+        if trimmed.hasPrefix("#") { return trimmed }
+        return "# \(title)\n\n\(trimmed)"
+    }
+
+    private func normalizeGeneratedSummaryMarkdown(_ markdown: String) -> String {
+        var normalized = markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Gemini occasionally compresses Markdown bullets into one visual line.
+        // Split only when it looks like a real bullet series, not a single dash in prose.
+        if normalized.components(separatedBy: " - ").count > 2 {
+            normalized = normalized.replacingOccurrences(
+                of: #"(\S)\s+-\s+"#,
+                with: "$1\n- ",
+                options: .regularExpression
+            )
+        }
+
+        if normalized.range(of: #"\s+\d+\.\s+"#, options: .regularExpression) != nil {
+            normalized = normalized.replacingOccurrences(
+                of: #"(\S)\s+(\d+\.\s+)"#,
+                with: "$1\n$2",
+                options: .regularExpression
+            )
+        }
+
+        var lines = normalized.components(separatedBy: .newlines)
+        if let first = lines.first, first.hasPrefix("# "), first.count > 72 {
+            let heading = String(first.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            if let split = splitLongGeneratedHeading(heading) {
+                lines[0] = "# \(split.title)"
+                lines.insert(split.body, at: 1)
+            }
+        }
+
+        normalized = lines
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+
+        while normalized.contains("\n\n\n") {
+            normalized = normalized.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func splitLongGeneratedHeading(_ heading: String) -> (title: String, body: String)? {
+        let splitMarkers = [". ", "? ", "! "]
+
+        for marker in splitMarkers {
+            if let range = heading.range(of: marker) {
+                let distance = heading.distance(from: heading.startIndex, to: range.upperBound)
+                if distance >= 18 && distance <= 72 {
+                    let title = String(heading[..<range.upperBound]).trimmingCharacters(in: .whitespaces)
+                    let body = String(heading[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if !body.isEmpty { return (title, body) }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private func estimatedMarkdownCardHeight(for markdown: String) -> CGFloat {
+        let lineCount = max(1, markdown.components(separatedBy: .newlines).count)
+        let characterRows = CGFloat(max(0, markdown.count - 180)) / 58
+        return min(560, max(260, 126 + CGFloat(lineCount) * 24 + characterRows * 24))
     }
 
     // MARK: - Post-it
@@ -2952,12 +3281,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
     // MARK: - Brain Dump → Mind Map
 
     func createMindMap(from result: GeminiService.MindMapResult, layout: MindMapLayout = .radial) {
-        guard let container = containerView else { return }
+        guard containerView != nil else { return }
 
         let center = visibleCenter()
-        let levelColors: [PostItColor] = [.blue, .yellow, .green, .purple, .pink]
         let levelSizes: [(w: CGFloat, h: CGFloat)] = [
-            (240, 120), (180, 100), (150, 80)
+            (270, 86), (230, 74), (190, 64)
         ]
 
         // Agrupar nós por nível
@@ -2990,20 +3318,24 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             layoutFlow(center: center, nodesByLevel: nodesByLevel, childrenOf: childrenOf, positions: &positions)
         }
 
-        // Criar post-its nas posições calculadas
+        if let markdown = summaryMarkdown(for: result) {
+            addMarkdownSummaryCard(markdown: markdown, at: CGPoint(x: center.x - 900, y: center.y))
+        }
+
+        // Criar textos livres nas posições calculadas
         var nodeViews: [Int: UIView] = [:]
         for node in result.nodes {
             let lvl = min(node.level, 2)
             let size = levelSizes[lvl]
-            let fontSize: CGFloat = [20, 16, 14][lvl]
+            let fontSize: CGFloat = [26, 22, 18][lvl]
             let pos = positions[node.id] ?? center
 
-            let view = createPostItForMindMap(
+            let view = createTextNodeForMindMap(
                 text: node.text,
-                color: levelColors[lvl],
                 position: pos,
                 size: CGSize(width: size.w, height: size.h),
-                fontSize: fontSize
+                fontSize: fontSize,
+                highlightColor: lvl < 2 ? Self.highlightColors.randomElement() : nil
             )
             nodeViews[node.id] = view
         }
@@ -3014,6 +3346,20 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                   let toView = nodeViews[conn.to] else { continue }
             createConnection(from: fromView, to: toView)
         }
+    }
+
+    private func summaryMarkdown(for result: GeminiService.MindMapResult) -> String? {
+        if let summary = result.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
+            return formattedSummaryMarkdown(title: result.title, summary: summary)
+        }
+
+        let mainPoints = result.nodes
+            .filter { $0.level == 1 }
+            .map { "- \($0.text)" }
+            .joined(separator: "\n")
+
+        guard !mainPoints.isEmpty else { return nil }
+        return "# \(result.title)\n\n\(mainPoints)"
     }
 
     // MARK: - Layout Radial (circular ao redor do centro)
@@ -3152,60 +3498,52 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         }
     }
 
-    private func createPostItForMindMap(
+    private func createTextNodeForMindMap(
         text: String,
-        color: PostItColor,
         position: CGPoint,
         size: CGSize,
-        fontSize: CGFloat
+        fontSize: CGFloat,
+        highlightColor: UIColor?
     ) -> UIView {
-        let postIt = UIView()
-        postIt.frame = CGRect(
+        let textView = NonZoomableTextView()
+        textView.canvasCoordinator = self
+
+        textView.text = text
+        textView.font = UIFont(name: "Noteworthy-Bold", size: fontSize) ?? .systemFont(ofSize: fontSize, weight: .semibold)
+        textView.textColor = currentTextColor
+        textView.backgroundColor = .clear
+        textView.isScrollEnabled = false
+        textView.textAlignment = .center
+        textView.frame = CGRect(
             x: position.x - size.width / 2,
             y: position.y - size.height / 2,
             width: size.width,
             height: size.height
         )
-        postIt.backgroundColor = color.uiColor
-        postIt.layer.cornerRadius = 8
-        postIt.layer.shadowColor = UIColor.black.cgColor
-        postIt.layer.shadowOpacity = 0.15
-        postIt.layer.shadowRadius = 4
-        postIt.layer.shadowOffset = CGSize(width: 2, height: 2)
-        postIt.isUserInteractionEnabled = true
-
-        let textView = NonZoomableTextView()
-        textView.canvasCoordinator = self
-
-        textView.text = text
-        textView.font = UIFont(name: "MarkerFelt-Wide", size: fontSize) ?? .systemFont(ofSize: fontSize, weight: .medium)
-        textView.textColor = postItTextColor
-        textView.backgroundColor = .clear
-        textView.isScrollEnabled = false
-        textView.textAlignment = .center
-        textView.frame = postIt.bounds.insetBy(dx: 10, dy: 8)
-        textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        textView.tintColor = postItTextColor
+        textView.layer.cornerRadius = 4
+        textView.isUserInteractionEnabled = true
+        textView.tintColor = currentTextColor
         textView.dataDetectorTypes = []
         textView.linkTextAttributes = [:]
         textView.tag = 0
         textView.delegate = self
 
-        postIt.addSubview(textView)
-
-        addDragGestures(to: postIt)
-        addElementToCanvas(postIt)
-        allElementViews[UUID()] = postIt
-
-        // Animação de entrada
-        postIt.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-        postIt.alpha = 0
-        UIView.animate(withDuration: 0.4, delay: Double.random(in: 0...0.3), usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
-            postIt.transform = .identity
-            postIt.alpha = 1
+        addDragGestures(to: textView)
+        addElementToCanvas(textView)
+        allElementViews[UUID()] = textView
+        if let highlightColor {
+            addScribbleHighlight(to: textView, color: highlightColor)
         }
 
-        return postIt
+        // Animação de entrada
+        textView.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+        textView.alpha = 0
+        UIView.animate(withDuration: 0.4, delay: Double.random(in: 0...0.3), usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
+            textView.transform = .identity
+            textView.alpha = 1
+        }
+
+        return textView
     }
 
     // MARK: - Audio Recording
@@ -3499,7 +3837,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                 if !text.isEmpty && tv.tag != Self.placeholderTag {
                     if let corrected = corrections[index] {
                         tv.text = corrected
-                        tv.textColor = currentTextColor
+                        tv.textColor = textViewHasPage(tv) ? .systemBlue : currentTextColor
                         // Flash verde pra indicar que foi corrigido
                         flashGreen(tv)
                     }
@@ -3553,6 +3891,67 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     // MARK: - Capture Canvas
 
+    func captureVisibleCanvasForIllustration() -> UIImage? {
+        guard let scroll = scrollView, let container = containerView else { return nil }
+        guard scroll.bounds.width > 1, scroll.bounds.height > 1, scroll.zoomScale > 0 else { return nil }
+
+        let visibleRect = CGRect(
+            x: scroll.contentOffset.x / scroll.zoomScale,
+            y: scroll.contentOffset.y / scroll.zoomScale,
+            width: scroll.bounds.width / scroll.zoomScale,
+            height: scroll.bounds.height / scroll.zoomScale
+        ).intersection(container.bounds)
+
+        guard !visibleRect.isNull, !visibleRect.isEmpty else { return nil }
+        guard hasRenderableContent(in: visibleRect) else { return nil }
+
+        let hiddenViews = captureChromeViews()
+        let previousHiddenStates = hiddenViews.map { ($0, $0.isHidden) }
+        hiddenViews.forEach { $0.isHidden = true }
+        defer { previousHiddenStates.forEach { $0.0.isHidden = $0.1 } }
+
+        scroll.layoutIfNeeded()
+        container.layoutIfNeeded()
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: scroll.bounds.size, format: format)
+        return renderer.image { _ in
+            scroll.drawHierarchy(in: CGRect(origin: .zero, size: scroll.bounds.size), afterScreenUpdates: true)
+        }
+    }
+
+    private func hasRenderableContent(in rect: CGRect) -> Bool {
+        if let drawingBounds = canvasView?.drawing.bounds,
+           !drawingBounds.isNull,
+           !drawingBounds.isEmpty,
+           drawingBounds.intersects(rect) {
+            return true
+        }
+
+        return allElementViews.values.contains { view in
+            !view.isHidden && view.alpha > 0 && view.frame.intersects(rect)
+        }
+    }
+
+    private func captureChromeViews() -> [UIView] {
+        var views: [UIView] = []
+        [
+            selectionBox,
+            lassoOverlay,
+            activeDeleteButton,
+            activeHighlightButton,
+            activeMarkdownColorButton,
+            activeTextPageButton,
+            activePageBackButton
+        ].forEach { view in
+            if let view { views.append(view) }
+        }
+        views.append(contentsOf: connectionPoints)
+        views.append(contentsOf: directionalButtons)
+        return views
+    }
+
     func captureCanvas() -> UIImage? {
         guard let canvasView = canvasView, let container = containerView else { return nil }
 
@@ -3575,8 +3974,9 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             // Transladar pra que paddedBounds.origin vire (0,0)
             context.translateBy(x: -paddedBounds.origin.x, y: -paddedBounds.origin.y)
 
-            // Fundo branco
-            UIColor.white.setFill()
+            // Mesmo fundo do canvas: no modo escuro, rabiscos/textos claros precisam contrastar na thumbnail.
+            let backgroundColor = container.backgroundColor ?? UIColor(patternImage: Self.dotGridPattern(dark: state.isDarkMode))
+            backgroundColor.setFill()
             context.fill(CGRect(origin: paddedBounds.origin, size: paddedBounds.size))
 
             // Renderizar setas de conexão (CAShapeLayers no container.layer)
@@ -3637,7 +4037,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         let (doc, drawingData, thumbnail) = collectProjectData(container: container, canvas: canvas)
 
         // Save to local cache for instant access
-        StorageService.save(document: doc, drawing: canvas.drawing, thumbnail: thumbnail)
+        StorageService.save(document: doc, drawingData: drawingData, thumbnail: thumbnail)
 
         // Save to cloud (source of truth) — fire and forget for auto-save
         Task {
@@ -3655,7 +4055,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         let (doc, drawingData, thumbnail) = collectProjectData(container: container, canvas: canvas)
 
         // Save to local cache
-        StorageService.save(document: doc, drawing: canvas.drawing, thumbnail: thumbnail)
+        StorageService.save(document: doc, drawingData: drawingData, thumbnail: thumbnail)
 
         // Await cloud upload (blocking — waits for completion)
         await SyncService.saveProject(doc, drawingData: drawingData, thumbnail: thumbnail)
@@ -3663,6 +4063,27 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     /// Collects project data from canvas without saving
     private func collectProjectData(container: UIView, canvas: PKCanvasView) -> (CanvasDocument, Data, UIImage?) {
+        let currentPage = collectPageData(container: container, canvas: canvas, mediaPrefix: currentPageMediaPrefix())
+        let rootPage = rootPageData(merging: currentPage)
+        let existingDoc = StorageService.loadDocument(id: projectId)
+
+        let doc = CanvasDocument(
+            id: projectId,
+            title: existingDoc?.title ?? "Sem título",
+            createdAt: existingDoc?.createdAt ?? Date(),
+            updatedAt: Date(),
+            prompt: state.prompt,
+            elements: rootPage.elements,
+            connections: rootPage.connections
+        )
+
+        let thumbnail = pageStack.isEmpty ? captureCanvas() : (StorageService.loadThumbnail(id: projectId) ?? captureCanvas())
+        let drawingData = rootPage.drawingData ?? canvas.drawing.dataRepresentation()
+
+        return (doc, drawingData, thumbnail)
+    }
+
+    private func collectPageData(container: UIView, canvas: PKCanvasView, mediaPrefix: String) -> CanvasPageData {
         var elements: [CanvasElement] = []
         var savedElementViews: [(view: UIView, id: String)] = []
         var fileIndex = 0
@@ -3681,7 +4102,8 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
             if let tv = sibling as? UITextView {
                 let text = (tv.tag == Self.placeholderTag) ? "" : (tv.text ?? "")
-                elements.append(CanvasElement(id: elementId, type: .text, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
+                let childPage = pageData(for: sibling).flatMap { pageHasContent($0) ? $0 : nil }
+                elements.append(CanvasElement(id: elementId, type: .text, text: text, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, page: childPage, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
                 savedElementViews.append((sibling, elementId))
                 continue
             }
@@ -3705,7 +4127,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             }
 
             if let imgView = sibling as? UIImageView, let image = imgView.image {
-                let filename = "img_\(fileIndex).jpg"
+                let filename = "\(mediaPrefix)_img_\(fileIndex).jpg"
                 fileIndex += 1
                 StorageService.saveImage(image, named: filename, canvasId: projectId)
                 elements.append(CanvasElement(id: elementId, type: sibling.tag == 888 ? .strokeGroup : .image, x: sibling.frame.origin.x, y: sibling.frame.origin.y, width: sibling.frame.width, height: sibling.frame.height, file: filename, highlightColor: hl, completionColor: done, completionStyle: doneStyle))
@@ -3752,20 +4174,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             }
         }
 
-        let doc = CanvasDocument(
-            id: projectId,
-            title: StorageService.loadDocument(id: projectId)?.title ?? "Sem título",
-            createdAt: StorageService.loadDocument(id: projectId)?.createdAt ?? Date(),
-            updatedAt: Date(),
-            prompt: state.prompt,
+        return CanvasPageData(
             elements: elements,
-            connections: connectionData.isEmpty ? nil : connectionData
+            connections: connectionData.isEmpty ? nil : connectionData,
+            drawingData: canvas.drawing.dataRepresentation()
         )
-
-        let thumbnail = captureCanvas()
-        let drawingData = canvas.drawing.dataRepresentation()
-
-        return (doc, drawingData, thumbnail)
     }
 
     func loadProject() {
@@ -3792,15 +4205,26 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
 
     private func restoreDocument(_ doc: CanvasDocument) {
         state.prompt = doc.prompt
+        pageStack.removeAll()
+        refreshPageNavigationControls()
 
-        // Carregar drawing
-        if let drawing = StorageService.loadDrawing(id: projectId) {
+        let drawingData = StorageService.loadDrawing(id: projectId)?.dataRepresentation()
+        let rootPage = CanvasPageData(elements: doc.elements, connections: doc.connections, drawingData: drawingData)
+        restorePage(rootPage, centerOnContent: true)
+    }
+
+    private func restorePage(_ page: CanvasPageData, centerOnContent shouldCenter: Bool) {
+        if let drawingData = page.drawingData,
+           let drawing = try? PKDrawing(data: drawingData) {
             canvasView?.drawing = drawing
+        } else {
+            canvasView?.drawing = PKDrawing()
         }
 
         // Limpar elementos e setas existentes antes de restaurar.
         // O load usa cache local e depois nuvem; sem limpar as layers antigas,
         // as mesmas conexões ficam duplicadas e reaparecem ao mover elementos.
+        clearSelection()
         clearConnections()
         hideConnectionPoints()
         hideDirectionalButtons()
@@ -3824,7 +4248,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         }
 
         // Recriar elementos
-        for element in doc.elements {
+        for element in page.elements {
             let pos = CGPoint(x: element.x + element.width / 2, y: element.y + element.height / 2)
 
             switch element.type {
@@ -3860,6 +4284,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
                     textView.text = "Toque para digitar"
                     textView.textColor = currentTextColor.withAlphaComponent(0.35)
                     textView.tag = Self.placeholderTag
+                }
+
+                if let childPage = element.page {
+                    setPageData(childPage, for: textView)
+                    applyPageVisual(to: textView)
                 }
 
                 addDragGestures(to: textView)
@@ -3938,7 +4367,7 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
         }
 
         // Restaurar conexões
-        if let connData = doc.connections {
+        if let connData = page.connections {
             for conn in connData {
                 let idConnection: (UIView, UIView)? = {
                     guard let fromId = conn.fromId,
@@ -3961,7 +4390,11 @@ class CanvasCoordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate, U
             }
         }
 
-        centerViewportOnLoadedContent(from: doc)
+        if shouldCenter {
+            centerViewportOnPage(page)
+        } else {
+            centerViewport(on: canvasCenter, animated: false)
+        }
     }
 }
 
@@ -4028,8 +4461,9 @@ extension CanvasCoordinator: UITextViewDelegate {
 
         if textView.tag == Self.placeholderTag {
             textView.text = ""
-            let color = isInsidePostIt(textView) ? postItTextColor : currentTextColor
+            let color = isInsidePostIt(textView) ? postItTextColor : displayColor(for: textView)
             textView.textColor = color
+            textView.tintColor = color
             textView.tag = 0
         }
     }
@@ -4087,8 +4521,9 @@ extension CanvasCoordinator: UITextViewDelegate {
 
         if textView.text.isEmpty {
             textView.text = "Toque para digitar"
-            let color = isInsidePostIt(textView) ? postItTextColor : currentTextColor
+            let color = isInsidePostIt(textView) ? postItTextColor : displayColor(for: textView)
             textView.textColor = color.withAlphaComponent(0.35)
+            textView.tintColor = color
             textView.tag = Self.placeholderTag
         }
     }

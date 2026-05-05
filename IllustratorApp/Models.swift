@@ -83,6 +83,16 @@ struct CanvasDocument: Codable, Identifiable {
     var connections: [CanvasConnectionData]?
 }
 
+struct CanvasPageData: Codable {
+    var elements: [CanvasElement]
+    var connections: [CanvasConnectionData]?
+    var drawingData: Data?
+
+    static var blank: CanvasPageData {
+        CanvasPageData(elements: [], connections: nil, drawingData: nil)
+    }
+}
+
 enum CanvasElementType: String, Codable {
     case text, postit, markdownCard, image, audio, strokeGroup
 }
@@ -97,6 +107,7 @@ struct CanvasElement: Codable {
     var height: CGFloat
     var color: PostItColor?
     var cardColor: MarkdownCardColor? = nil
+    var page: CanvasPageData? = nil
     var rotation: CGFloat?
     var file: String?
     var duration: TimeInterval?

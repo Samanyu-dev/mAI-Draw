@@ -255,7 +255,7 @@ struct BrainDumpView: View {
                         UserDefaults.standard.set(mindMapPrompt, forKey: "mindMapPrompt")
                         isPresented = false
                         if hasYouTubeLink {
-                            onYouTubeSummary(text, selectedLayout, mindMapPrompt)
+                            onYouTubeSummary(youtubeURL, selectedLayout, mindMapPrompt)
                         } else {
                             onGenerate(text, selectedLayout, mindMapPrompt)
                         }
@@ -294,7 +294,8 @@ struct BrainDumpView: View {
     }
 
     private var canGenerate: Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10 && !isRecording && !isTranscribing && !isFetchingTranscript
+        let hasText = text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 10
+        return (hasText || hasYouTubeLink) && !isRecording && !isTranscribing && !isFetchingTranscript
     }
 
     private var hasYouTubeLink: Bool {
@@ -310,21 +311,10 @@ struct BrainDumpView: View {
         isFetchingTranscript = true
         isFocused = false
 
-        Task {
-            do {
-                let videoId = YouTubeTranscriptService.extractVideoId(from: url)!
-                let transcript = try await YouTubeTranscriptService.fetchTranscript(videoId: videoId)
-                text = transcript
-                // Auto-disparar resumo
-                UserDefaults.standard.set(mindMapPrompt, forKey: "mindMapPrompt")
-                isPresented = false
-                onYouTubeSummary(text, selectedLayout, mindMapPrompt)
-            } catch {
-                errorMessage = error.localizedDescription
-                showError = true
-                isFetchingTranscript = false
-            }
-        }
+        // Auto-disparar resumo usando o link direto no Gemini.
+        UserDefaults.standard.set(mindMapPrompt, forKey: "mindMapPrompt")
+        isPresented = false
+        onYouTubeSummary(url.trimmingCharacters(in: .whitespacesAndNewlines), selectedLayout, mindMapPrompt)
     }
 
     // MARK: - Recording
