@@ -1,6 +1,38 @@
 import UIKit
 import PencilKit
 
+struct ProjectExportBundle: Codable {
+    var format: String = "com.loop9.maidraw.project"
+    var version: Int = 1
+    var exportedAt: Date
+    var document: CanvasDocument
+    var drawingData: Data?
+    var thumbnailData: Data?
+    var files: [ProjectExportFile]
+}
+
+struct ProjectExportFile: Codable {
+    var name: String
+    var data: Data
+}
+
+enum ProjectExportImportError: LocalizedError {
+    case documentNotFound
+    case invalidFormat
+    case unreadableFile
+
+    var errorDescription: String? {
+        switch self {
+        case .documentNotFound:
+            return "Projeto não encontrado no cache local."
+        case .invalidFormat:
+            return "Arquivo de projeto inválido."
+        case .unreadableFile:
+            return "Não foi possível ler o arquivo selecionado."
+        }
+    }
+}
+
 struct StorageService {
     private static let rootFolder = "mAI-Draw"
 
@@ -76,6 +108,11 @@ struct StorageService {
         return try? PKDrawing(data: data)
     }
 
+    static func loadDrawingData(id: String) -> Data? {
+        let folder = canvasURL(for: id)
+        return try? Data(contentsOf: folder.appendingPathComponent("drawing.data"))
+    }
+
     static func loadThumbnail(id: String) -> UIImage? {
         let folder = canvasURL(for: id)
         let thumbURL = folder.appendingPathComponent("thumbnail.jpg")
@@ -129,6 +166,108 @@ struct StorageService {
         if let data = try? JSONEncoder.withDates.encode(doc) {
             try? data.write(to: folder.appendingPathComponent("canvas.json"))
         }
+    }
+
+    // MARK: - Export / Import
+
+    static func exportProject(id: String) throws -> URL {
+        guard let document = loadDocument(id: id) else {
+            throw ProjectExportImportError.documentNotFound
+        }
+
+        let folder = canvasURL(for: id)
+        let excludedFiles = Set(["canvas.json", "drawing.data", "thumbnail.jpg"])
+        let fileURLs = (try? FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        let extraFiles = fileURLs.compactMap { url -> ProjectExportFile? in
+            guard !excludedFiles.contains(url.lastPathComponent),
+                  let data = try? Data(contentsOf: url) else { return nil }
+            return ProjectExportFile(name: url.lastPathComponent, data: data)
+        }
+
+        let bundle = ProjectExportBundle(
+            exportedAt: Date(),
+            document: document,
+            drawingData: loadDrawingData(id: id),
+            thumbnailData: try? Data(contentsOf: folder.appendingPathComponent("thumbnail.jpg")),
+            files: extraFiles
+        )
+
+        let filename = "\(safeFilename(document.title))-maidraw-\(document.id).maidrawproject"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try? FileManager.default.removeItem(at: url)
+        let data = try JSONEncoder.withDates.encode(bundle)
+        try data.write(to: url, options: [.atomic])
+        return url
+    }
+
+    static func importProject(from sourceURL: URL) throws -> CanvasDocument {
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { sourceURL.stopAccessingSecurityScopedResource() }
+        }
+
+        guard let data = try? Data(contentsOf: sourceURL) else {
+            throw ProjectExportImportError.unreadableFile
+        }
+
+        let bundle = try JSONDecoder.withDates.decode(ProjectExportBundle.self, from: data)
+        guard bundle.format == "com.loop9.maidraw.project" || bundle.format == "com.loop9.maidea.project" else {
+            throw ProjectExportImportError.invalidFormat
+        }
+
+        var document = bundle.document
+        document.id = makeImportedProjectId()
+        document.title = importedTitle(from: document.title)
+        document.createdAt = Date()
+        document.updatedAt = Date()
+
+        let folder = canvasURL(for: document.id)
+        try? FileManager.default.removeItem(at: folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        let documentData = try JSONEncoder.withDates.encode(document)
+        try documentData.write(to: folder.appendingPathComponent("canvas.json"), options: [.atomic])
+
+        if let drawingData = bundle.drawingData {
+            try drawingData.write(to: folder.appendingPathComponent("drawing.data"), options: [.atomic])
+        }
+
+        if let thumbnailData = bundle.thumbnailData {
+            try thumbnailData.write(to: folder.appendingPathComponent("thumbnail.jpg"), options: [.atomic])
+        }
+
+        for file in bundle.files {
+            let url = folder.appendingPathComponent(safeImportedFilename(file.name))
+            try file.data.write(to: url, options: [.atomic])
+        }
+
+        return document
+    }
+
+    private static func makeImportedProjectId() -> String {
+        String(UUID().uuidString.prefix(8)).lowercased()
+    }
+
+    private static func importedTitle(from title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Projeto importado" : trimmed
+    }
+
+    private static func safeFilename(_ title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+        let cleaned = title.unicodeScalars.map { allowed.contains($0) ? String($0) : "-" }.joined()
+        let compact = cleaned.replacingOccurrences(of: " ", with: "-")
+        let trimmed = compact.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? "projeto" : String(trimmed.prefix(48))
+    }
+
+    private static func safeImportedFilename(_ filename: String) -> String {
+        URL(fileURLWithPath: filename).lastPathComponent
     }
 }
 

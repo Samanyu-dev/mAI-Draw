@@ -1,5 +1,26 @@
 import SwiftUI
 import PencilKit
+import UniformTypeIdentifiers
+import UIKit
+
+extension UTType {
+    static let maiDrawProject = UTType(exportedAs: "com.loop9.maidraw.project", conformingTo: .json)
+}
+
+private struct ExportedProjectFile: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
 
 struct ProjectGalleryView: View {
     @EnvironmentObject var authState: AuthState
@@ -13,6 +34,9 @@ struct ProjectGalleryView: View {
     @State private var showDeleteConfirm = false
     @State private var deleteTarget: ProjectItem?
     @State private var showSettings = false
+    @State private var showImporter = false
+    @State private var exportedFile: ExportedProjectFile?
+    @State private var importErrorMessage: String?
     // Multi-select
     @State private var isSelecting = false
     @State private var selectedIds: Set<String> = []
@@ -77,6 +101,12 @@ struct ProjectGalleryView: View {
                                             Label("Duplicar", systemImage: "doc.on.doc")
                                         }
 
+                                        Button {
+                                            exportProject(project)
+                                        } label: {
+                                            Label("Exportar", systemImage: "square.and.arrow.up")
+                                        }
+
                                         Divider()
 
                                         Button(role: .destructive) {
@@ -123,6 +153,12 @@ struct ProjectGalleryView: View {
                     } else {
                         HStack(spacing: 16) {
                             Button {
+                                showImporter = true
+                            } label: {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 18, weight: .medium))
+                            }
+                            Button {
                                 isSelecting = true
                                 selectedIds.removeAll()
                             } label: {
@@ -142,6 +178,16 @@ struct ProjectGalleryView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView(isDarkMode: $isDarkMode)
                     .environmentObject(authState)
+            }
+            .sheet(item: $exportedFile) { file in
+                ActivityView(activityItems: [file.url])
+            }
+            .fileImporter(
+                isPresented: $showImporter,
+                allowedContentTypes: [.maiDrawProject, .json, .data],
+                allowsMultipleSelection: false
+            ) { result in
+                handleImportResult(result)
             }
             .fullScreenCover(item: $openedProjectId) { projectId in
                 ContentView(projectId: projectId, onClose: {
@@ -185,6 +231,14 @@ struct ProjectGalleryView: View {
                 Button("Cancelar", role: .cancel) {}
             } message: {
                 Text("Isso não pode ser desfeito.")
+            }
+            .alert("Importação", isPresented: Binding(
+                get: { importErrorMessage != nil },
+                set: { if !$0 { importErrorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(importErrorMessage ?? "")
             }
             .onAppear { loadProjects() }
             .preferredColorScheme(isDarkMode ? .dark : .light)
@@ -264,6 +318,58 @@ struct ProjectGalleryView: View {
             await MainActor.run {
                 isSyncing = false
                 openedProjectId = String(id)
+            }
+        }
+    }
+
+    private func exportProject(_ project: ProjectItem) {
+        isSyncing = true
+        Task {
+            _ = await SyncService.loadDocument(id: project.id)
+            do {
+                let url = try StorageService.exportProject(id: project.id)
+                await MainActor.run {
+                    exportedFile = ExportedProjectFile(url: url)
+                    isSyncing = false
+                }
+            } catch {
+                await MainActor.run {
+                    importErrorMessage = "Não foi possível exportar este projeto: \(error.localizedDescription)"
+                    isSyncing = false
+                }
+            }
+        }
+    }
+
+    private func handleImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            importProject(from: url)
+        case .failure(let error):
+            importErrorMessage = "Não foi possível selecionar o arquivo: \(error.localizedDescription)"
+        }
+    }
+
+    private func importProject(from url: URL) {
+        isSyncing = true
+        Task {
+            do {
+                let document = try StorageService.importProject(from: url)
+                await SyncService.saveProject(
+                    document,
+                    drawingData: StorageService.loadDrawingData(id: document.id),
+                    thumbnail: StorageService.loadThumbnail(id: document.id)
+                )
+                await loadProjects()
+                await MainActor.run {
+                    isSyncing = false
+                }
+            } catch {
+                await MainActor.run {
+                    importErrorMessage = "Não foi possível importar este projeto: \(error.localizedDescription)"
+                    isSyncing = false
+                }
             }
         }
     }
