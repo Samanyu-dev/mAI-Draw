@@ -2,9 +2,14 @@ import Foundation
 import AVFoundation
 
 struct WhisperService {
-    static let apiKey = "OPENAI_API_KEY_REMOVED"
+    static var apiKey: String? { AppSecrets.value("OPENAI_API_KEY") }
 
     static func transcribe(audioURL: URL) async throws -> String {
+        guard let apiKey = apiKey else {
+            throw NSError(domain: "WhisperService", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "OpenAI API key nao configurada"])
+        }
+
         let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
 
         let audioData = try Data(contentsOf: audioURL)

@@ -15,10 +15,14 @@ enum GeminiError: LocalizedError {
 }
 
 struct GeminiService {
-    static let apiKey = "GEMINI_API_KEY_REMOVED"
+    static var apiKey: String? { AppSecrets.value("GEMINI_API_KEY") }
     static let model = "gemini-3.1-flash-image-preview"
 
     static func illustrate(image: UIImage, prompt: String) async throws -> UIImage {
+        guard let apiKey = apiKey else {
+            throw GeminiError.apiError("Gemini API key nao configurada")
+        }
+
         let requestImage = image.resizedForGeminiRequest(maxPixelSide: 1536)
 
         // Comprimir como JPEG pra reduzir tamanho do payload (mesmo approach do SDK)
@@ -89,6 +93,10 @@ struct GeminiService {
     }
 
     static func reviewTexts(_ elements: [TextElement]) async throws -> [ReviewedText] {
+        guard let apiKey = apiKey else {
+            throw GeminiError.apiError("Gemini API key nao configurada")
+        }
+
         // Montar lista de textos para o prompt
         var textList = ""
         for el in elements {
