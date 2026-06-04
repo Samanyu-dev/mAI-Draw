@@ -9,3 +9,12 @@ DerivedData/
 
 # OS
 .DS_Store
+
+# Local secrets and environment files
+.env
+.env.*
+Secrets*.xcconfig
+Local*.xcconfig
+*.private.xcconfig
+Secrets.plist
+LocalSecrets.plist

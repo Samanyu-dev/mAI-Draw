@@ -1,0 +1,27 @@
+name: Maintenance task
+description: Track documentation, CI, release, or security hardening work.
+title: "[Maintenance]: "
+labels:
+  - maintenance
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: Task
+      description: What needs to be maintained or improved?
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Why it matters
+      description: Explain the maintainer or contributor value.
+    validations:
+      required: true
+  - type: textarea
+    id: checklist
+    attributes:
+      label: Checklist
+      placeholder: |
+        - [ ] Step 1
+        - [ ] Step 2
